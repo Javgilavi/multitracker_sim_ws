@@ -1,0 +1,92 @@
+<sdf version="1.6">
+  <world name="default_world">
+    <!-- Include the default ground plane -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- Include the default sun -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Plugin to receive the states (positions) of the entities -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+
+      <update_rate>1.0</update_rate>  <!-- Update rate of 1 Hz -->
+    </plugin>
+
+    <!-- Model for cube 1 -->
+    <model name="cube1">
+      <static>false</static>
+      <pose>1 0 0.25 0 0 0</pose>       <!-- Position and orientation -->
+      <link name="link">
+        <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>  <!-- Dimensions -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Model for cube 2 -->
+    <model name="cube2">
+      <static>false</static>
+      <pose>-1 0 0.25 0 0 0</pose>      <!-- Position and orientation -->
+      <link name="link">
+        <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>  <!-- Dimensions -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Model for cube 3 -->
+    <model name="cube3">
+      <static>false</static>
+      <pose>0 1 0.25 0 0 0</pose>       <!-- Position and orientation -->
+      <link name="link">
+        <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>  <!-- Dimensions -->
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.5</size>
+            </box>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    
+  </world>
+</sdf>
