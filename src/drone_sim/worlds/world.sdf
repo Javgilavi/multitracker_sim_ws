@@ -25,6 +25,14 @@
       <pose>1 0 0.25 0 0 0</pose>       <!-- Position and orientation -->
       <link name="link">
         <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <inertial>
+          <mass>1.0</mass>
+          <inertia>
+            <ixx>0.1</ixx>
+            <iyy>0.1</iyy>
+            <izz>0</izz>
+          </inertia>
+        </inertial>
         <collision name="collision">
           <geometry>
             <box>
@@ -48,6 +56,14 @@
       <pose>-1 0 0.25 0 0 0</pose>      <!-- Position and orientation -->
       <link name="link">
         <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <inertial>
+          <mass>1.0</mass>
+          <inertia>
+            <ixx>0.1</ixx>
+            <iyy>0.1</iyy>
+            <izz>0</izz>
+          </inertia>
+        </inertial>
         <collision name="collision">
           <geometry>
             <box>
@@ -71,6 +87,14 @@
       <pose>0 1 0.25 0 0 0</pose>       <!-- Position and orientation -->
       <link name="link">
         <pose>0 0 0 0 0 0</pose>        <!-- Position and orientation of movement axes relative to the center -->
+        <inertial>
+          <mass>1.0</mass>
+          <inertia>
+            <ixx>0</ixx>
+            <iyy>0</iyy>
+            <izz>0</izz>
+          </inertia>
+        </inertial>
         <collision name="collision">
           <geometry>
             <box>
