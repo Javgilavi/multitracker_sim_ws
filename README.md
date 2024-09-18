@@ -1,96 +1,96 @@
 # Multitracker Simulation Project
 
-Este proyecto está desarrollado para **ROS2 Humble** con el uso de **GAZEBO Classic** en **Ubuntu 22.04**. El proyecto consta de tres paquetes dentro de `src`, que se utilizan para simular un entorno de seguimiento de entidades mediante la fusión sensorial de un LIDAR y datos ADS-B.
+This project is developed for **ROS2 Humble** using **GAZEBO Classic** on **Ubuntu 22.04**. The project consists of three packages within `src`, which are used to simulate an entity tracking environment through sensor fusion using a LIDAR and ADS-B data.
 
-## Estructura del proyecto
+## Project Structure
 
-- **drone_sim**: Contiene el entorno de simulación en Gazebo, junto con nodos complementarios para mover el dron y los cubos.
-- **multitracker**: Nodo que actúa como multitracker de entidades, utilizando datos de sensores.
-- **sim_msgs**: Paquete que contiene los mensajes personalizados utilizados en el proyecto, como `Adsb.msg`.
+- **drone_sim**: Contains the Gazebo simulation environment, along with complementary nodes to move the drone and the cubes.
+- **multitracker**: Node that acts as a multitracker for entities, using sensor data.
+- **sim_msgs**: Package that contains the custom messages used in the project, such as `Adsb.msg`.
 
-## Descripción general
+## General Overview
 
-Este proyecto simula un dron con un sensor **LIDAR** que realiza el seguimiento de tres entidades (cubos) mediante la fusión de datos sensoriales. Los cubos publican periódicamente sus estados a través de mensajes **ADS-B** en sus respectivos tópicos, lo que permite al dron realizar un seguimiento en tiempo real.
+This project simulates a drone equipped with a **LIDAR** sensor that tracks three entities (cubes) through sensor data fusion. The cubes periodically publish their states via **ADS-B** messages on their respective topics, allowing the drone to track them in real-time.
 
-- El dron publica su estado en el tópico `/drone/state`.
-- Los cubos publican su estado en el tópico `/cube/state`.
-- Si se utiliza el LIDAR, el sensor publicará mensajes de tipo **PointCloud** en el tópico `/drone/laser/scan`.
+- The drone publishes its state on the `/drone/state` topic.
+- The cubes publish their state on the `/cube/state` topic.
+- If the LIDAR is used, the sensor will publish **PointCloud** messages on the `/drone/laser/scan` topic.
 
-El nodo **multitracker** utiliza un filtro de Kalman para predecir y actualizar el estado de las entidades, y los trackeos se visualizan en RViz2 a través del tópico `/cube/marker`.
+The **multitracker** node uses a Kalman filter to predict and update the state of the entities, and the tracking data is visualized in RViz2 through the `/cube/marker` topic.
 
-## Requisitos
+## Requirements
 
 - **ROS2 Humble**
 - **Gazebo Classic**
 - **Ubuntu 22.04**
 
-## Instrucciones de compilación
+## Compilation Instructions
 
-1. **Compilar el proyecto**:
-   Primero, compila el paquete `sim_msgs`, seguido del resto del proyecto.
+1. **Build the project**:
+   First, build the `sim_msgs` package, followed by the rest of the project.
 
    ```bash
    colcon build --packages-select sim_msgs
    colcon build
    ```
 
-2. **Fuente del entorno**:
-   Tras compilar, ejecuta:
+2. **Source the environment**:
+   After building, execute:
 
    ```bash
    source install/setup.bash
    ```
 
-## Ejecución de la simulación en Gazebo
+## Running the Simulation in Gazebo
 
-1. **Lanzar la simulación**:
-   Para iniciar el entorno de simulación en Gazebo, utiliza el siguiente comando:
+1. **Launch the simulation**:
+   To start the Gazebo simulation environment, use the following command:
 
    ```bash
    ros2 launch drone_sim drone_world_launch.py
    ```
 
-   En el archivo de lanzamiento <drone_sim/launch/drone_world_launch.py>, en la línea 16, puedes cambiar `model.sdf` por `model_lidar.sdf` para incluir o excluir el sensor LIDAR en el dron.
+   In the launch file <drone_sim/launch/drone_world_launch.py>, on line 16, you can change `model.sdf` to `model_lidar.sdf` to include or exclude the LIDAR sensor on the drone.
 
-2. **Mover los cubos aleatoriamente**:
-   Para mover los cubos de forma aleatoria en la simulación, ejecuta:
+2. **Move the cubes randomly**:
+   To move the cubes randomly in the simulation, execute:
 
    ```bash
    ros2 run drone_sim cube_mover
    ```
 
-3. **Mover el dron aleatoriamente**:
-   Para mover el dron de forma aleatoria, ejecuta:
+3. **Move the drone randomly**:
+   To move the drone randomly, execute:
 
    ```bash
    ros2 run drone_sim drone_mover
    ```
 
-## Ejecución del multitracker
+## Running the Multitracker
 
-1. **Lanzar el nodo tracker**:
-   El nodo `tracker` del paquete `multitracker` utiliza un filtro de Kalman para predecir y actualizar el estado de las entidades trackeadas. Para ejecutar este nodo, utiliza:
+1. **Launch the tracker node**:
+   The `tracker` node from the `multitracker` package uses a Kalman filter to predict and update the state of the tracked entities. To run this node, use:
 
    ```bash
    ros2 run multitracker tracker
    ```
 
-   Este nodo actualmente solo realiza el seguimiento mediante ADS-B del cubo 1.
+   This node currently only tracks **cube 1** via ADS-B.
 
-2. **Visualización en RViz2**:
-   Los datos de seguimiento de los cubos se publican en el tópico `/cube/marker` en formato **Marker** o **MarkerArray**, y pueden ser visualizados en **RViz2**.
+2. **Visualization in RViz2**:
+   The tracking data for the cubes is published on the `/cube/marker` topic in **Marker** or **MarkerArray** format, and can be visualized in **RViz2**.
 
-## Publicaciones de tópicos importantes
+## Important Topics
 
-- **/drone/state**: Publica el estado del dron.
-- **/cube/state**: Publica el estado de los cubos.
-- **/drone/laser/scan**: Si se utiliza LIDAR, publica los datos del sensor en formato **PointCloud**.
-- **/cube/marker**: Publica los trackeos en formato **Marker** para su visualización en RViz2.
+- **/drone/state**: Publishes the state of the drone.
+- **/cube/state**: Publishes the state of the cubes.
+- **/drone/laser/scan**: If the LIDAR is used, it publishes the sensor data in **PointCloud** format.
+- **/cube/marker**: Publishes the tracking data in **Marker** format for visualization in RViz2.
 
-## Mensajes personalizados
+## Custom Messages
 
-El proyecto utiliza un mensaje personalizado **Adsb.msg** que contiene el estado global de los cubos y el dron. Este mensaje se utiliza tanto para la simulación como para el trackeo de las entidades.
+The project uses a custom **Adsb.msg** message that contains the global state of the cubes and the drone. This message is used both for the simulation and for tracking the entities.
 
-## Resumen
+## Summary
 
-Este proyecto de simulación de seguimiento utiliza un dron con LIDAR para rastrear entidades (cubos) en un entorno de simulación de Gazebo. Los estados de los cubos se publican utilizando mensajes ADS-B y se procesan mediante un filtro de Kalman en el nodo multitracker.
+This simulation project uses a drone equipped with LIDAR to track entities (cubes) in a Gazebo simulation environment. The states of the cubes are published using ADS-B messages and are processed by a Kalman filter in the multitracker node.
