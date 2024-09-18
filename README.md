@@ -74,11 +74,18 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
    ```bash
    ros2 run multitracker tracker
    ```
-
-   This node currently only tracks **cube 1** via ADS-B.
-
-2. **Visualization in RViz2**:
+   
    The tracking data for the cubes is published on the `/cube/marker` topic in **Marker** or **MarkerArray** format, and can be visualized in **RViz2**.
+
+   You can also launch both the `tracker` node with **RViz2**, with its adapted configuration, using:
+
+   ```bash
+   ros2 launch multitracker tracker_launch.py
+   ```
+
+   > [!NOTE]
+   > This node currently only **tracks via ADS-B**.
+   
 
 ## Important Topics
 

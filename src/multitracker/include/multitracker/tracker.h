@@ -1,8 +1,8 @@
 /**
  * @file tracker.h
  * @author Javier Gil Aviles (javgilavi)
- * @brief Tracker from ADS-B of one cube
- * @version 1.0
+ * @brief Tracker from ADS-B of different cubes
+ * @version 1.1
  * @copyright PUBLIC
  */
 #include <rclcpp/rclcpp.hpp>
@@ -10,6 +10,7 @@
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include "visualization_msgs/msg/marker_array.hpp"
 #include <Eigen/Dense>
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -62,7 +63,7 @@ class Tracker : public rclcpp::Node {
         rclcpp::Subscription<sim_msgs::msg::Adsb>::SharedPtr subscriber_drone_;
 
         // Publisher for rviz2 marker visualization
-        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr rviz_publisher_;
+        rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr rviz_publisher_;
 
         // Timer for periodic prediction and state update.
         rclcpp::TimerBase::SharedPtr timer_;
@@ -70,7 +71,7 @@ class Tracker : public rclcpp::Node {
 
         // Variables 
         sim_msgs::msg::Adsb drone_state;    // To store GPS data from the LIDAR. Start empty
-        SensorData obs;                     // State of the obstacle detected. Case one track
+        // SensorData obs;                     // State of the obstacle detected. Case one track
         std::vector<SensorData> obs_list;   // Vector to list all tracks
         
     };

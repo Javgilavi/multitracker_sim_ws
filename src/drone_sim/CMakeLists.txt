@@ -33,7 +33,7 @@ ament_target_dependencies(drone_mover rclcpp gazebo_msgs geometry_msgs)
 
 # Install the created executables
 install(TARGETS
-position_pub cube_mover drone_mover
+  position_pub cube_mover drone_mover
   DESTINATION lib/${PROJECT_NAME})
 
 # Install launch files
