@@ -1,12 +1,82 @@
 /**
  * @file tracker.cpp
  * @author Javier Gil Aviles (javgilavi)
- * @brief Tracker from ADS-B of different cubes
- * @version 1.1
+ * @brief Tracker from ADS-B of different cubes with a low-pass filter
+ * @version 1.2
  * @copyright PUBLIC
  */
 
 #include "multitracker/tracker.h"   // Library with all dependencies and declarations
+
+
+// 1.5 FUNCTION TO MAKE MEDIAN VALUE OF SENSORDATA VECTOR -------------------------------------------------
+
+// Subfunction to calculate median from any value vector
+template<typename T>
+T median(std::vector<T>& values) {
+    size_t size = values.size();
+    if (size == 0) {
+        throw std::domain_error("Cannot compute median of an empty vector");
+    }
+    std::sort(values.begin(), values.end());
+    if (size % 2 == 0) {
+        return (values[size / 2 - 1] + values[size / 2]) / 2.0;
+    } else {
+        return values[size / 2];
+    }
+}
+
+// Function to calculate median of a vector of SensorData
+SensorData median_sensordata(std::vector<SensorData> data_buffer){
+    SensorData median_data = data_buffer[0];
+    
+    // Vectors to store individual components for calculating median
+    std::vector<double> x_positions, y_positions, z_positions;
+    std::vector<double> x_orientations, y_orientations, z_orientations, w_orientations;
+    std::vector<double> x_velocities, y_velocities, z_velocities;
+    std::vector<float> widths, lengths, heights;
+    
+    // Extract each value from each SensorData into separate vectors
+    for (const auto& data : data_buffer) {
+        x_positions.push_back(data.position.x);
+        y_positions.push_back(data.position.y);
+        z_positions.push_back(data.position.z);
+
+        x_orientations.push_back(data.orientation.x);
+        y_orientations.push_back(data.orientation.y);
+        z_orientations.push_back(data.orientation.z);
+        w_orientations.push_back(data.orientation.w);
+
+        x_velocities.push_back(data.vel.x);
+        y_velocities.push_back(data.vel.y);
+        z_velocities.push_back(data.vel.z);
+
+        widths.push_back(data.size.width);
+        lengths.push_back(data.size.length);
+        heights.push_back(data.size.height);
+    }
+
+    // Calculate median for each component and assign it to the new SensorData
+    median_data.position.x = median(x_positions);
+    median_data.position.y = median(y_positions);
+    median_data.position.z = median(z_positions);
+
+    median_data.orientation.x = median(x_orientations);
+    median_data.orientation.y = median(y_orientations);
+    median_data.orientation.z = median(z_orientations);
+    median_data.orientation.w = median(w_orientations);
+
+    median_data.vel.x = median(x_velocities);
+    median_data.vel.y = median(y_velocities);
+    median_data.vel.z = median(z_velocities);
+
+    median_data.size.width = median(widths);
+    median_data.size.length = median(lengths);
+    median_data.size.height = median(heights);
+
+    return median_data;
+}
+// 1.5 ----------------------------------------------------------------------------------------------------
 
 
 Tracker::Tracker() : Node("simple_tracker"){
@@ -22,14 +92,12 @@ Tracker::Tracker() : Node("simple_tracker"){
     rviz_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("cube/marker", 10);
 
     // Create a timer to publish periodically predict the tracked state, also other to publish in rviz2
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&Tracker::kalman_predict, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Tracker::kalman_predict, this));
     timer2_ = this->create_wall_timer(std::chrono::milliseconds(200), std::bind(&Tracker::rviz_pub, this));
 }
 
 
 void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){ 
-
-    // 1. NEED TO PASS DATA FROM GLOBAL VALUES TO LOCAL VALUES (DRONE)
 
     // Only transform from global to local if we have drone state. Now we only use cube1
     if(drone_state.id == 0){
@@ -61,15 +129,212 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         // RCLCPP_INFO(this->get_logger(), "Data after fixing: X: %f, Y: %f, Z: %f", fix_state.pose.position.x, fix_state.pose.position.y, fix_state.pose.position.z);
         // RCLCPP_INFO(this->get_logger(), "---------------------");
 
-        // Send the fixed sensor for kalman update
-        kalman_update(fix_state);
+        // Send the fixed sensor to the low-pass filter
+        lowpass_filter(fix_state);
     }
+}
+
+// 1. MAKE A LOW-PASS FILTER FOR THE INPUT DATA OF THE SENSORS --------------------------------------------
+void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){ 
+
+    // Define quantity of data for the buffer of low-pass filter
+    uint32_t n_buffer = 10;
+    
+    // Change data to SensorData format
+    SensorData obs;
+    obs.id = fix_state.id;
+    obs.position = fix_state.pose.position;
+    obs.orientation = fix_state.pose.orientation;
+    obs.vel = fix_state.twist.linear;
+    obs.size.width = fix_state.size.width;
+    obs.size.length = fix_state.size.length;
+    obs.size.height = fix_state.size.height;
+    obs.timestamp = this->now();
+
+    // Search the buffer on the list with the same ID
+    for (auto& obs_buffer : obs_buffer_list){
+        if(obs_buffer[0].id == obs.id){
+
+            // Enter the new data at the start
+            obs_buffer.insert(obs_buffer.begin(), obs);
+
+            // If the buffer surpass limit value eliminate the oldest (last value)
+            if(obs_buffer.size() > n_buffer){
+                obs_buffer.pop_back();
+            }
+
+            // If buffer is full make the median value and send it to kalman update
+            if(obs_buffer.size() == n_buffer){
+                SensorData median_obs;
+                median_obs = median_sensordata(obs_buffer);
+
+                // Send the low-pass filter data with median for kalman update
+                kalman_update(median_obs);     
+            }
+
+            // To end the loop and function
+            return; 
+        }
+    }
+
+    // In case this ID data has not appear still insert it
+    std::vector<SensorData> new_obs_buffer;
+    new_obs_buffer.push_back(obs);
+    obs_buffer_list.push_back(new_obs_buffer);
+
+}
+// 1 ------------------------------------------------------------------------------------------------------
+
+
+void Tracker::kalman_update(const SensorData median_state){ 
+
+    // Declare of the state and covariance for the update of kalman
+    VectorXd state(13);     // State is [x, y, z, angx, angy, angz, angw, vx, vy, vz, width, length, height]
+    MatrixXd covariance(13,13);
+    
+    // Vector of data recieve from the sensor
+    VectorXd sensorData(13); 
+
+    // C Matrix of the reading module
+    MatrixXd C(13,13);
+    C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
+
+    // R Matrix for noise acknowledge of the sensor t the filter. Change to 0.1
+    MatrixXd R(13,13);
+    R << 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
+    
+    // Get each obstacle in the list
+    for (auto& obs : obs_list) {
+
+        // Only update the obstacle in the list with the same ID
+        if(obs.id == median_state.id){
+
+            // Before updating with kalman, always predict
+            kalman_predict();   // Revisar quitar este predict o hacer que solo prediga el obstaculo en cuestion
+
+            // Give the vector and matrix the previous value store from Kalman
+            state = obs.state;
+            covariance = obs.covariance;
+
+            // Fill the sensorData with the fixed state of the cube to the drone
+            sensorData(0) = median_state.position.x;
+            sensorData(1) = median_state.position.y;
+            sensorData(2) = median_state.position.z;
+            sensorData(3) = median_state.orientation.x;
+            sensorData(4) = median_state.orientation.y;
+            sensorData(5) = median_state.orientation.z;
+            sensorData(6) = median_state.orientation.w;
+            sensorData(7) = median_state.vel.x;
+            sensorData(8) = median_state.vel.y;
+            sensorData(9) = median_state.vel.z;
+            sensorData(10) = median_state.size.width;
+            sensorData(11) = median_state.size.length;
+            sensorData(12) = median_state.size.height;
+        
+            // Calculate Kalman Gain
+            MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
+
+            // Print to check results
+            // std::cout << " C'*Q*C: \n" << C*covariance*C.transpose() << std::endl;
+            // std::cout << " (C'*Q*C+R)^-1: \n" << (C*covariance*C.transpose() + R).inverse() << std::endl;
+            // std::cout << " Ganancia de Kalman: \n" << K << std::endl;
+            // VectorXd Kalman_error = (sensorData - C*state);
+            // std::cout << " Kalman Error (only position and velocity [x y z vx vy vz]): " << std::endl;
+            // std::cout << "  " << Kalman_error(0) << ", " << Kalman_error(1) << ", " << Kalman_error(2) << ", " << Kalman_error(7) << ", " << Kalman_error(8) << ", " << Kalman_error(9) << std::endl;
+
+            // Update Kalman equation for the state
+            state = state + K*(sensorData - C*state);
+
+            // Update of the covariance
+            covariance = (MatrixXd::Identity(13,13) - K*C)*covariance;
+
+            // Restoring state values and covariance
+            obs.position.x = state(0);  
+            obs.position.y = state(1);  
+            obs.position.z = state(2);  
+            obs.orientation.x = state(3);  
+            obs.orientation.y = state(4);  
+            obs.orientation.z = state(5);  
+            obs.orientation.w = state(6);  
+            obs.vel.x = state(7);  
+            obs.vel.y = state(8);  
+            obs.vel.z = state(9);  
+            obs.size.width = state(10);
+            obs.size.length = state(11); 
+            obs.size.height = state(12); 
+
+            obs.state = state;
+            obs.covariance = covariance;
+
+            // Update the time of last prediction
+            obs.timestamp = this->now();
+
+            // Print to check results
+            // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
+            // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
+            // std::cout << " Update Covariance: \n" << covariance << std::endl;
+
+            return;     // Once the obstacle is updated we stop the loop and function
+        }
+    }
+
+    // In case the loop ended and no upload was made we add the new data to the list
+    SensorData obs;
+    obs.id = median_state.id;
+    obs.position = median_state.position;
+    obs.orientation = median_state.orientation;
+    obs.vel = median_state.vel;
+    obs.size = median_state.size;
+    obs.timestamp = this->now();
+
+    // Fill the state of the obs and the initial covariance
+    obs.state(0) = obs.position.x;  
+    obs.state(1) = obs.position.y;  
+    obs.state(2) = obs.position.z;  
+    obs.state(3) = obs.orientation.x;  
+    obs.state(4) = obs.orientation.y;  
+    obs.state(5) = obs.orientation.z;  
+    obs.state(6) = obs.orientation.w;  
+    obs.state(7) = obs.vel.x; 
+    obs.state(8) = obs.vel.y; 
+    obs.state(9) = obs.vel.z; 
+    obs.state(10) = obs.size.width;
+    obs.state(11) = obs.size.length; 
+    obs.state(12) = obs.size.height;
+
+    obs.covariance.setZero();
+    obs.covariance.diagonal().setConstant(0.01);
+
+    // Push back to the vector of the list of obstacle this new obstacle detected
+    obs_list.push_back(obs);
 }
 
 
 void Tracker::kalman_predict(){ 
-
-    // 2. DEVELOPE THE KALMAN PREDICT FOR THE TRACKER
 
     // Declare of the state and covariance for the prediction of kalman
     VectorXd state(13);     // State is [x, y, z, angx, angy, angz, angw, vx, vy, vz, width, length, height]
@@ -153,167 +418,11 @@ void Tracker::kalman_predict(){
         // Update the time of last prediction
         obs.timestamp = this->now();
 
-        // EN PRINCIPIO NO HAY QUE VOLVER A METERLO YA QUE OBS ES UNA REFERENCIA DEL VALOR DE LA LISTA -> REVISAR
-
         // Print to check the results
         // std::cout << " Predict State (only position and velocity [x y z vx vy vz]):" << std::endl;
         // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
         // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
-
-}
-
-
-void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){ 
-    // 2. DEVELOPE THE KALMAN UPDATE FOR THE TRACKER
-
-    // Declare of the state and covariance for the update of kalman
-    VectorXd state(13);     // State is [x, y, z, angx, angy, angz, angw, vx, vy, vz, width, length, height]
-    MatrixXd covariance(13,13);
-    
-    // Vector of data recieve from the sensor
-    VectorXd sensorData(13); 
-
-    // C Matrix of the medition modelo
-    MatrixXd C(13,13);
-    C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
-
-    // R Matrix for noise acknowledge of the sensor t the filter 
-    MatrixXd R(13,13);
-    R << 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01;
-    
-    // Get each obstacle in the list
-    for (auto& obs : obs_list) {
-
-        // Only update the obstacle in the list with the same ID
-        if(obs.id == fix_state.id){
-
-            // Before updating with kalman, always predict
-            kalman_predict();   // Revisar quitar este predict o hacer que solo prediga el obstaculo en cuestion
-
-            // Give the vector and matrix the previous value store from Kalman
-            state = obs.state;
-            covariance = obs.covariance;
-
-            // Fill the sensorData with the fixed state of the cube to the drone
-            sensorData(0) = fix_state.pose.position.x;
-            sensorData(1) = fix_state.pose.position.y;
-            sensorData(2) = fix_state.pose.position.z;
-            sensorData(3) = fix_state.pose.orientation.x;
-            sensorData(4) = fix_state.pose.orientation.y;
-            sensorData(5) = fix_state.pose.orientation.z;
-            sensorData(6) = fix_state.pose.orientation.w;
-            sensorData(7) = fix_state.twist.linear.x;
-            sensorData(8) = fix_state.twist.linear.y;
-            sensorData(9) = fix_state.twist.linear.z;
-            sensorData(10) = fix_state.size.width;
-            sensorData(11) = fix_state.size.length;
-            sensorData(12) = fix_state.size.height;
-        
-            // Calculate Kalman Gain
-            MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
-
-            // Print to check results
-            // std::cout << " C'*Q*C: \n" << C*covariance*C.transpose() << std::endl;
-            // std::cout << " (C'*Q*C+R)^-1: \n" << (C*covariance*C.transpose() + R).inverse() << std::endl;
-            // std::cout << " Ganancia de Kalman: \n" << K << std::endl;
-            // VectorXd Kalman_error = (sensorData - C*state);
-            // std::cout << " Kalman Error (only position and velocity [x y z vx vy vz]): " << std::endl;
-            // std::cout << "  " << Kalman_error(0) << ", " << Kalman_error(1) << ", " << Kalman_error(2) << ", " << Kalman_error(7) << ", " << Kalman_error(8) << ", " << Kalman_error(9) << std::endl;
-
-            // Update Kalman equation for the state
-            state = state + K*(sensorData - C*state);
-
-            // Update of the covariance
-            covariance = (MatrixXd::Identity(13,13) - K*C)*covariance;
-
-            // Restoring state values and covariance
-            obs.position.x = state(0);  
-            obs.position.y = state(1);  
-            obs.position.z = state(2);  
-            obs.orientation.x = state(3);  
-            obs.orientation.y = state(4);  
-            obs.orientation.z = state(5);  
-            obs.orientation.w = state(6);  
-            obs.vel.x = state(7);  
-            obs.vel.y = state(8);  
-            obs.vel.z = state(9);  
-            obs.size.width = state(10);
-            obs.size.length = state(11); 
-            obs.size.height = state(12); 
-
-            obs.state = state;
-            obs.covariance = covariance;
-
-            // Update the time of last prediction
-            obs.timestamp = this->now();
-            
-            // EN PRINCIPIO NO HAY QUE VOLVER A METERLO YA QUE OBS ES UNA REFERENCIA DEL VALOR DE LA LISTA -> REVISAR
-
-            // Print to check results
-            // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
-            // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-            // std::cout << " Update Covariance: \n" << covariance << std::endl;
-
-            return;     // Once the obstacle is updated we stop the loop and function
-        }
-    }
-
-    // In case the loop ended and no upload was made we add the new data to the list
-    SensorData obs;
-    obs.id = fix_state.id;
-    obs.position = fix_state.pose.position;
-    obs.orientation = fix_state.pose.orientation;
-    obs.vel = fix_state.twist.linear;
-    obs.size.width = fix_state.size.width;
-    obs.size.length = fix_state.size.length;
-    obs.size.height = fix_state.size.height;
-    obs.timestamp = this->now();
-
-    // Fill the state of the obs and the initial covariance
-    obs.state(0) = obs.position.x;  
-    obs.state(1) = obs.position.y;  
-    obs.state(2) = obs.position.z;  
-    obs.state(3) = obs.orientation.x;  
-    obs.state(4) = obs.orientation.y;  
-    obs.state(5) = obs.orientation.z;  
-    obs.state(6) = obs.orientation.w;  
-    obs.state(7) = obs.vel.x; 
-    obs.state(8) = obs.vel.y; 
-    obs.state(9) = obs.vel.z; 
-    obs.state(10) = obs.size.width;
-    obs.state(11) = obs.size.length; 
-    obs.state(12) = obs.size.height;
-
-    obs.covariance.setZero();
-    obs.covariance.diagonal().setConstant(0.01);
-
-    // Push back to the vector of the list of obstacle this new obstacle detected
-    obs_list.push_back(obs);
 
 }
 
