@@ -50,7 +50,7 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
    ros2 launch drone_sim drone_world_launch.py
    ```
 
-   In the launch file <drone_sim/launch/drone_world_launch.py>, on line 16, you can change `model.sdf` to `model_lidar.sdf` to include or exclude the LIDAR sensor on the drone.
+   In the launch file **drone_sim/launch/drone_world_launch.py**, on line 16, you can change `model.sdf` to `model_lidar.sdf` to include or exclude the LIDAR sensor on the drone.
 
 2. **Move the cubes randomly**:
    To move the cubes randomly in the simulation, execute:
@@ -83,8 +83,8 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
    ros2 launch multitracker tracker_launch.py
    ```
 
-   > [!NOTE]
-   > This node currently only **tracks via ADS-B**.
+> [!NOTE]
+> This node currently only **tracks via ADS-B**.
    
 
 ## Important Topics
