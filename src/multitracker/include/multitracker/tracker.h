@@ -1,8 +1,8 @@
 /**
  * @file tracker.h
  * @author Javier Gil Aviles (javgilavi)
- * @brief Tracker from ADS-B of different cubes
- * @version 1.1
+ * @brief Tracker from ADS-B of different cubes with a low-pass filter
+ * @version 1.2
  * @copyright PUBLIC
  */
 #include <rclcpp/rclcpp.hpp>
@@ -46,11 +46,14 @@ class Tracker : public rclcpp::Node {
         // Callback for the data received from the cube1 ADSB and transform from global to local (drone).
         void data_recieve(const sim_msgs::msg::Adsb::SharedPtr msg);
 
-        // Predict the state of the tracked.
-        void kalman_predict();
+        // Apply a low-pass filter before entering the data rom the sensor to Kalman
+        void lowpass_filter(const sim_msgs::msg::Adsb fix_state);
 
         // Update the state of the tracked cube with the data received.
-        void kalman_update(const sim_msgs::msg::Adsb fix_state);
+        void kalman_update(const SensorData median_state);
+
+        // Predict the state of the tracked.
+        void kalman_predict();
 
         // Callback for the updating of the GPS data of our drone.
         void drone_update(const sim_msgs::msg::Adsb::SharedPtr msg);
@@ -70,9 +73,9 @@ class Tracker : public rclcpp::Node {
         rclcpp::TimerBase::SharedPtr timer2_;
 
         // Variables 
-        sim_msgs::msg::Adsb drone_state;    // To store GPS data from the LIDAR. Start empty
-        // SensorData obs;                     // State of the obstacle detected. Case one track
-        std::vector<SensorData> obs_list;   // Vector to list all tracks
+        sim_msgs::msg::Adsb drone_state;                        // To store GPS data from the LIDAR. Start empty
+        std::vector<SensorData> obs_list;                       // Vector to list all tracks
+        std::vector<std::vector<SensorData>> obs_buffer_list;   // Buffer to make the low-pass filter
         
     };
 
