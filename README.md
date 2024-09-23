@@ -24,6 +24,17 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
 - **Gazebo Classic**
 - **Ubuntu 22.04**
 
+## Steps for the Training
+
+1. **Transform ADS-B tracks from global to local**
+2. **Track Cube1 from its ADS-B data using Kalman Filter**
+3. **Create a list to track all 3 cubes at the same time**
+4. **strengthen the multitracker (random dissaparence, low-pass filter, ...)**
+5. **Add LIDAR measurement using a driver to get tracks**
+6. **Matching of LIDAR tracks with obstacle in the list**
+7. **New matrix in Kalman Filter for LIDAR tracks**
+8. **Final testings**
+
 ## Compilation Instructions
 
 1. **Build the project**:
