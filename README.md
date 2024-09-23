@@ -94,6 +94,17 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
    ros2 launch multitracker tracker_launch.py
    ```
 
+2. **Error visualization**:
+When you stop the `multitracker` node with `CTRL+C`, the **RMSE** of position and orientation for each tracked obstacle will be displayed. Additionally, the error data will be saved in `error_data.txt` in the workspace.
+
+To visualize the errors, run the Python script:
+
+```bash
+python3 /home/flyros/multitracker_sim_ws/error_plotter.py
+```
+
+This script generates graphs for positional and orientational errors for each tracked obstacle.
+
 > [!NOTE]
 > This node currently only **tracks via ADS-B**.
    

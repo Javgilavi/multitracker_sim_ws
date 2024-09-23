@@ -8,6 +8,27 @@
 
 #include "multitracker/tracker.h"   // Library with all dependencies and declarations
 
+// For knowing errors ----------------------------------------------
+
+// Map to store position and orientation errors for each ID
+std::unordered_map<int, std::vector<double>> pos_error_x_map;
+std::unordered_map<int, std::vector<double>> pos_error_y_map;
+std::unordered_map<int, std::vector<double>> pos_error_z_map;
+
+std::unordered_map<int, std::vector<double>> ori_error_x_map;
+std::unordered_map<int, std::vector<double>> ori_error_y_map;
+std::unordered_map<int, std::vector<double>> ori_error_z_map;
+std::unordered_map<int, std::vector<double>> ori_error_w_map;
+
+double calculate_rmse(const std::vector<double>& errors) {
+    double sum_error = 0.0;
+    for (double error : errors) {
+        sum_error += error * error;
+    }
+    return std::sqrt(sum_error / errors.size());
+}
+//--------------------------------------------------------------------
+
 
 // 1.5 FUNCTION TO MAKE MEDIAN VALUE OF SENSORDATA VECTOR -------------------------------------------------
 
@@ -81,6 +102,9 @@ SensorData median_sensordata(std::vector<SensorData> data_buffer){
 
 Tracker::Tracker() : Node("simple_tracker"){
 
+    // Store the time the node starts
+    start_time_ = this->now();
+
     // Initial value. When change to 0 the drone GPS is working
     drone_state.id = 4;
 
@@ -101,6 +125,14 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
 
     // Only transform from global to local if we have drone state. Now we only use cube1
     if(drone_state.id == 0){
+        // Set up random number generation
+        std::random_device rd;  // Non-deterministic random number generator
+        std::mt19937 gen(rd()); // Seed generator
+        std::uniform_real_distribution<> dis(0.0, 1.0);  // Generate numbers between 0 and 1
+
+        // Generate a random value
+        double random_value = dis(gen);
+
         sim_msgs::msg::Adsb fix_state = *sensor_state;
 
         // Substract drone pose, orientation and velocity to the sensor datas for fixing it to be relative to the drone state
@@ -121,13 +153,44 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         fix_state.twist.angular.y = fix_state.twist.angular.y - drone_state.twist.angular.y;
         fix_state.twist.angular.z = fix_state.twist.angular.z - drone_state.twist.angular.z;
 
+        // For taking the error of the output list with the real state ----------------------------
+        for (auto& obs : obs_list) {
+            if (obs.id == fix_state.id) {
+                // Compute position errors for each axis (X, Y, Z)
+                double pos_error_x_val = fix_state.pose.position.x - obs.position.x;
+                double pos_error_y_val = fix_state.pose.position.y - obs.position.y;
+                double pos_error_z_val = fix_state.pose.position.z - obs.position.z;
+                
+                // Compute orientation errors for each component (X, Y, Z, W)
+                double ori_error_x_val = fix_state.pose.orientation.x - obs.orientation.x;
+                double ori_error_y_val = fix_state.pose.orientation.y - obs.orientation.y;
+                double ori_error_z_val = fix_state.pose.orientation.z - obs.orientation.z;
+                double ori_error_w_val = fix_state.pose.orientation.w - obs.orientation.w;
 
-        // Print the fixed position to check the results
-        // sim_msgs::msg::Adsb prefix_state = *sensor_state;
-        // RCLCPP_INFO(this->get_logger(), "ID detected: %d ", prefix_state.id);
-        // RCLCPP_INFO(this->get_logger(), "Data before fixing: X: %f, Y: %f, Z: %f", prefix_state.pose.position.x, prefix_state.pose.position.y, prefix_state.pose.position.z);
-        // RCLCPP_INFO(this->get_logger(), "Data after fixing: X: %f, Y: %f, Z: %f", fix_state.pose.position.x, fix_state.pose.position.y, fix_state.pose.position.z);
-        // RCLCPP_INFO(this->get_logger(), "---------------------");
+                // Store errors in maps by ID
+                pos_error_x_map[obs.id].push_back(pos_error_x_val);
+                pos_error_y_map[obs.id].push_back(pos_error_y_val);
+                pos_error_z_map[obs.id].push_back(pos_error_z_val);
+                
+                ori_error_x_map[obs.id].push_back(ori_error_x_val);
+                ori_error_y_map[obs.id].push_back(ori_error_y_val);
+                ori_error_z_map[obs.id].push_back(ori_error_z_val);
+                ori_error_w_map[obs.id].push_back(ori_error_w_val);
+            }
+        }
+        // -------------------------------------------------------------------------------------------
+
+        // Skip publishing for the cubes based on a threshold (e.g., 50% chance)
+        if (random_value > 1) {
+            RCLCPP_INFO(this->get_logger(), "Skipping publication for Cube%d", fix_state.id);
+            return;  // Don't pass the data
+        }
+
+        // From 60s to 80s the cube3 ADS-B won't be publish to test
+        if(fix_state.id == 3 && (this->now()-start_time_).seconds() > 60 && (this->now()-start_time_).seconds() < 80){
+            RCLCPP_INFO(this->get_logger(), "Cube3 doesnt publish");
+            return;  // Don't pass the message
+        }
 
         // Send the fixed sensor to the low-pass filter
         lowpass_filter(fix_state);
@@ -515,5 +578,33 @@ int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<Tracker>());
     rclcpp::shutdown();
+
+    // Loop over all IDs in the position error maps
+    std::ofstream error_file("error_data.txt");
+    std::cout << "----" << std::endl;
+    for (const auto& [id, pos_errors_x] : pos_error_x_map) {
+        double rmse_pos_x = calculate_rmse(pos_errors_x);
+        double rmse_pos_y = calculate_rmse(pos_error_y_map[id]);
+        double rmse_pos_z = calculate_rmse(pos_error_z_map[id]);
+
+        double rmse_ori_x = calculate_rmse(ori_error_x_map[id]);
+        double rmse_ori_y = calculate_rmse(ori_error_y_map[id]);
+        double rmse_ori_z = calculate_rmse(ori_error_z_map[id]);
+        double rmse_ori_w = calculate_rmse(ori_error_w_map[id]);
+
+        // Log the RMSE for this ID
+        std::cout << "ID " << id << " - RMSE Position (X: " << rmse_pos_x << ", Y: " << rmse_pos_y << ", Z: " << rmse_pos_z << ")" << std::endl;
+        std::cout << "     - RMSE Orientation (X: " << rmse_ori_x << ", Y: " << rmse_ori_y << ", Z: " << rmse_ori_z << ", W: " << rmse_ori_w << ")" << std::endl;
+        std::cout << "----" << std::endl;
+
+        // Save the errors
+        for (int i = 0; i < static_cast<int>(pos_errors_x.size()); ++i){
+            error_file << "ID: " << id << " ";
+            error_file << pos_errors_x[i] << " " << pos_error_y_map[id][i] << " " << pos_error_z_map[id][i] << " ";
+            error_file << ori_error_x_map[id][i] << " " << ori_error_y_map[id][i] << " " << ori_error_z_map[id][i] << " " << ori_error_w_map[id][i] << std::endl;
+        }
+    }
+    error_file.close();
+
     return 0;
 }
