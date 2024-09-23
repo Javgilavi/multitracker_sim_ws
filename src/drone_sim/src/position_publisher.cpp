@@ -9,8 +9,6 @@
 class PositionPublisher : public rclcpp::Node {
 public:
     PositionPublisher() : Node("position_publisher") {
-        // Store the time the node starts
-        start_time_ = this->now();
 
         // Create publishers for each cube
         publisher_cube_ = this->create_publisher<sim_msgs::msg::Adsb>("cube/state", 10);
@@ -49,26 +47,6 @@ private:
                 try {
                     auto response = future.get();
                     if (response->success) {
-                        
-                        // Set up random number generation
-                        std::random_device rd;  // Non-deterministic random number generator
-                        std::mt19937 gen(rd()); // Seed generator
-                        std::uniform_real_distribution<> dis(0.0, 1.0);  // Generate numbers between 0 and 1
-
-                        // Generate a random value
-                        double random_value = dis(gen);
-                        
-                        // Skip publishing for the cubes based on a threshold (e.g., 50% chance)
-                        if (model_name != "drone" && random_value > 0.5) {
-                            RCLCPP_INFO(this->get_logger(), "Skipping publication for %s", model_name.c_str());
-                            return;  // Don't publish the message
-                        }
-
-                        // From 60s to 80s the cube3 ADS-B won't be publish to test
-                        if(model_name == "cube3" && (this->now()-start_time_).seconds() > 60 && (this->now()-start_time_).seconds() < 80){
-                            RCLCPP_INFO(this->get_logger(), "%s doesnt publish", model_name.c_str());
-                            return;  // Don't publish the message
-                        }
 
                         auto state_msg = sim_msgs::msg::Adsb();
 
@@ -106,7 +84,6 @@ private:
     rclcpp::Publisher<sim_msgs::msg::Adsb>::SharedPtr publisher_drone_;
     rclcpp::Client<gazebo_msgs::srv::GetEntityState>::SharedPtr client_;
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Time start_time_;
 };
 
 int main(int argc, char **argv) {
