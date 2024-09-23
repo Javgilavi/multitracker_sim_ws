@@ -1,8 +1,8 @@
 /**
  * @file tracker.h
  * @author Javier Gil Aviles (javgilavi)
- * @brief Tracker from ADS-B of different cubes with a low-pass filter
- * @version 1.2
+ * @brief Tracker from ADS-B and LIDAR of different cubes with a low-pass filter
+ * @version 1.3
  * @copyright PUBLIC
  */
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +11,15 @@
 #include <geometry_msgs/msg/vector3.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include "visualization_msgs/msg/marker_array.hpp"
+#include <sensor_msgs/msg/point_cloud.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/common/centroid.h>
 #include <Eigen/Dense>
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -69,15 +78,21 @@ class Tracker : public rclcpp::Node {
         // Callback for the updating of the GPS data of our drone.
         void drone_update(const sim_msgs::msg::Adsb::SharedPtr msg);
 
+        // Callback of the LIDAR and a driver for it
+        void driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_cloud);
+
         // Function to publish the tracker data to marker in rviz2 for visualization
         void rviz_pub();
 
         // Subscribers for the ADSB data of the cube and the drone.
         rclcpp::Subscription<sim_msgs::msg::Adsb>::SharedPtr subscriber_cube_;
         rclcpp::Subscription<sim_msgs::msg::Adsb>::SharedPtr subscriber_drone_;
+        rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscriber_lidar_;
 
         // Publisher for rviz2 marker visualization
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr rviz_publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filter_cloud_;              // ELIMINAR
+        rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr rviz_lidar_cubes_;
 
         // Timer for periodic prediction and state update.
         rclcpp::TimerBase::SharedPtr timer_;
