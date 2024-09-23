@@ -35,6 +35,12 @@ struct SensorData{
     Eigen::Matrix<double, 13, 13> covariance;
 
     rclcpp::Time timestamp;                     // Time of last predict or update
+    rclcpp::Time time_update;                   // Time of the last update. If more than X delate obstacle from list
+
+    // Define the equality operator
+    bool operator==(const SensorData& other) const {
+        return id == other.id;
+    }
 };
 
 // ROS2 node for the cube tracker

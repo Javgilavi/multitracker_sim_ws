@@ -291,7 +291,8 @@ void Tracker::kalman_update(const SensorData median_state){
             obs.covariance = covariance;
 
             // Update the time of last prediction
-            obs.timestamp = this->now();
+            obs.timestamp = this->now();            
+            obs.time_update = this->now();           // 2 ADD NEW TIME VALUE
 
             // Print to check results
             // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
@@ -310,6 +311,7 @@ void Tracker::kalman_update(const SensorData median_state){
     obs.vel = median_state.vel;
     obs.size = median_state.size;
     obs.timestamp = this->now();
+    obs.time_update = this->now();      // 2 ADD NEW TIME VALUE
 
     // Fill the state of the obs and the initial covariance
     obs.state(0) = obs.position.x;  
@@ -356,8 +358,18 @@ void Tracker::kalman_predict(){
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5;
 
+    // Vector to store the obs wanting to delate
+    std::vector<SensorData> to_remove;              // 2
+
     // Get each obstacle in the list
     for (auto& obs : obs_list) {
+        
+        // 2. IF OBSTACLE MORE THAN X TIME SINCE LAST UPDATE DELATE IT (ASSUME DISSAPEAR) --------------------------------------------
+        uint32_t t_alive = 5;
+        if(this->now().seconds()-obs.time_update.seconds() >= t_alive){
+            to_remove.push_back(obs);
+        }
+        // 2. ------------------------------------------------------------------------------------------------------------------------
 
         // Print the id of the obstacle to predict from the list
         // RCLCPP_INFO(this->get_logger(), "Obstacle to predict with ID: %d", obs.id);
@@ -423,6 +435,13 @@ void Tracker::kalman_predict(){
         // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
         // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
+
+    // 2. IF OBSTACLE MORE THAN X TIME SINCE LAST UPDATE DELATE IT (ASSUME DISSAPEAR) --------------------------------------------
+    for (auto& obs : to_remove) {
+        obs_list.erase(std::remove(obs_list.begin(), obs_list.end(), obs), obs_list.end());
+        RCLCPP_INFO(this->get_logger(), "Obstacle %d eliminated", obs.id);
+    }
+    // 2. ------------------------------------------------------------------------------------------------------------------------
 
 }
 
