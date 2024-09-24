@@ -1,14 +1,12 @@
 /**
  * @file tracker.cpp
  * @author Javier Gil Aviles (javgilavi)
- * @brief Tracker from ADS-B of different cubes with a low-pass filter
- * @version 1.2
+ * @brief Tracker from ADS-B and LIDAR of different cubes with a low-pass filter
+ * @version 1.3
  * @copyright PUBLIC
  */
 
 #include "multitracker/tracker.h"   // Library with all dependencies and declarations
-
-// For knowing errors ----------------------------------------------
 
 // Map to store position and orientation errors for each ID
 std::unordered_map<int, std::vector<double>> pos_error_x_map;
@@ -27,10 +25,7 @@ double calculate_rmse(const std::vector<double>& errors) {
     }
     return std::sqrt(sum_error / errors.size());
 }
-//--------------------------------------------------------------------
 
-
-// 1.5 FUNCTION TO MAKE MEDIAN VALUE OF SENSORDATA VECTOR -------------------------------------------------
 
 // Subfunction to calculate median from any value vector
 template<typename T>
@@ -97,7 +92,6 @@ SensorData median_sensordata(std::vector<SensorData> data_buffer){
 
     return median_data;
 }
-// 1.5 ----------------------------------------------------------------------------------------------------
 
 
 Tracker::Tracker() : Node("simple_tracker"){
@@ -111,9 +105,12 @@ Tracker::Tracker() : Node("simple_tracker"){
     // Create subscriber for cube1 and drone
     subscriber_cube_ = this->create_subscription<sim_msgs::msg::Adsb>("cube/state", 10, std::bind(&Tracker::data_recieve, this, std::placeholders::_1));
     subscriber_drone_ = this->create_subscription<sim_msgs::msg::Adsb>("drone/state", 10, std::bind(&Tracker::drone_update, this, std::placeholders::_1));
+    subscriber_lidar_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("drone/laser/scan", 10, std::bind(&Tracker::driver_lidar, this, std::placeholders::_1));
 
     // Create publisher for rviz2 representation
     rviz_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("cube/marker", 10);
+    filter_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("drone/laser/filter", 10);
+    rviz_lidar_cubes_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("lidar/marker", 10);
 
     // Create a timer to publish periodically predict the tracked state, also other to publish in rviz2
     timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Tracker::kalman_predict, this));
@@ -153,7 +150,6 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         fix_state.twist.angular.y = fix_state.twist.angular.y - drone_state.twist.angular.y;
         fix_state.twist.angular.z = fix_state.twist.angular.z - drone_state.twist.angular.z;
 
-        // For taking the error of the output list with the real state ----------------------------
         for (auto& obs : obs_list) {
             if (obs.id == fix_state.id) {
                 // Compute position errors for each axis (X, Y, Z)
@@ -178,17 +174,16 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
                 ori_error_w_map[obs.id].push_back(ori_error_w_val);
             }
         }
-        // -------------------------------------------------------------------------------------------
 
         // Skip publishing for the cubes based on a threshold (e.g., 50% chance)
         if (random_value > 1) {
-            RCLCPP_INFO(this->get_logger(), "Skipping publication for Cube%d", fix_state.id);
+            // RCLCPP_INFO(this->get_logger(), "Skipping publication for Cube%d", fix_state.id);
             return;  // Don't pass the data
         }
 
         // From 60s to 80s the cube3 ADS-B won't be publish to test
         if(fix_state.id == 3 && (this->now()-start_time_).seconds() > 60 && (this->now()-start_time_).seconds() < 80){
-            RCLCPP_INFO(this->get_logger(), "Cube3 doesnt publish");
+            // RCLCPP_INFO(this->get_logger(), "Cube3 doesnt publish");
             return;  // Don't pass the message
         }
 
@@ -197,7 +192,7 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
     }
 }
 
-// 1. MAKE A LOW-PASS FILTER FOR THE INPUT DATA OF THE SENSORS --------------------------------------------
+
 void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){ 
 
     // Define quantity of data for the buffer of low-pass filter
@@ -246,7 +241,6 @@ void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){
     obs_buffer_list.push_back(new_obs_buffer);
 
 }
-// 1 ------------------------------------------------------------------------------------------------------
 
 
 void Tracker::kalman_update(const SensorData median_state){ 
@@ -355,7 +349,7 @@ void Tracker::kalman_update(const SensorData median_state){
 
             // Update the time of last prediction
             obs.timestamp = this->now();            
-            obs.time_update = this->now();           // 2 ADD NEW TIME VALUE
+            obs.time_update = this->now();          
 
             // Print to check results
             // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
@@ -374,7 +368,7 @@ void Tracker::kalman_update(const SensorData median_state){
     obs.vel = median_state.vel;
     obs.size = median_state.size;
     obs.timestamp = this->now();
-    obs.time_update = this->now();      // 2 ADD NEW TIME VALUE
+    obs.time_update = this->now();   
 
     // Fill the state of the obs and the initial covariance
     obs.state(0) = obs.position.x;  
@@ -422,17 +416,15 @@ void Tracker::kalman_predict(){
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5;
 
     // Vector to store the obs wanting to delate
-    std::vector<SensorData> to_remove;              // 2
+    std::vector<SensorData> to_remove;           
 
     // Get each obstacle in the list
     for (auto& obs : obs_list) {
         
-        // 2. IF OBSTACLE MORE THAN X TIME SINCE LAST UPDATE DELATE IT (ASSUME DISSAPEAR) --------------------------------------------
         uint32_t t_alive = 5;
         if(this->now().seconds()-obs.time_update.seconds() >= t_alive){
             to_remove.push_back(obs);
         }
-        // 2. ------------------------------------------------------------------------------------------------------------------------
 
         // Print the id of the obstacle to predict from the list
         // RCLCPP_INFO(this->get_logger(), "Obstacle to predict with ID: %d", obs.id);
@@ -499,20 +491,189 @@ void Tracker::kalman_predict(){
         // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
 
-    // 2. IF OBSTACLE MORE THAN X TIME SINCE LAST UPDATE DELATE IT (ASSUME DISSAPEAR) --------------------------------------------
     for (auto& obs : to_remove) {
         obs_list.erase(std::remove(obs_list.begin(), obs_list.end(), obs), obs_list.end());
         RCLCPP_INFO(this->get_logger(), "Obstacle %d eliminated", obs.id);
     }
-    // 2. ------------------------------------------------------------------------------------------------------------------------
 
 }
 
 
 void Tracker::drone_update(const sim_msgs::msg::Adsb::SharedPtr msg){
-    // CREATE VARIABLE TO STORE THE DRONE POSITION AND UPDATE IT IN EACH CALLBACK
     drone_state = *msg;
 }
+
+
+// OPTIONAL. LIDAR DRIVER -----------------------------------------------------------------------------
+void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_cloud){
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromROSMsg(*lidar_cloud, *cloud);
+
+    // RANSAC plane segmentation to extract the ground
+    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+    seg.setModelType(pcl::SACMODEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(0.1);
+    seg.setInputCloud(cloud);
+    seg.segment(*inliers, *coefficients);
+
+    // Extract the points that are not part of the plane (non-ground points)
+    pcl::ExtractIndices<pcl::PointXYZ> extract;
+    extract.setInputCloud(cloud);
+    extract.setIndices(inliers);
+    extract.setNegative(true);  // Remove plane points (ground)
+    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    extract.filter(*filtered_cloud);
+
+    // SHOW LIDAR WITHOUT GROUND ON RVIZ 
+    sensor_msgs::msg::PointCloud2 output_msg;
+    pcl::toROSMsg(*filtered_cloud, output_msg);
+    // Set the header information for the message
+    output_msg.header = lidar_cloud->header;  // Use the same header from the input message (frame_id, timestamp, etc.)
+    // Publish the filtered point cloud
+    filter_cloud_->publish(output_msg);
+
+    // Extract data from the cubes
+    // Separate the cubes by clustering
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+    ec.setClusterTolerance(0.2); 
+    ec.setMinClusterSize(10);     // Minimum points for a cluster to be considered a cube
+    ec.setMaxClusterSize(25000);  // Maximum number of points per cube
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(filtered_cloud);
+    std::vector<pcl::PointIndices> cluster_indices;
+    ec.extract(cluster_indices);    // Points divide in the different clusters
+
+    visualization_msgs::msg::MarkerArray marker_array;  // To visualice in RVIZ
+    int32_t cluster_id = 0;
+
+    // Loop through each cluster (representing each cube)
+    for (const auto& indices : cluster_indices) {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cube_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        
+        // Extract points corresponding to this cluster
+        for (const auto& idx : indices.indices) {
+            cube_cloud->points.push_back(filtered_cloud->points[idx]);
+        }
+
+        // Detect first plane in the cube, assume is a face of the cube
+        pcl::SACSegmentation<pcl::PointXYZ> cube_seg;
+        pcl::PointIndices::Ptr cube_inliers(new pcl::PointIndices);
+        pcl::ModelCoefficients::Ptr cube_coefficients(new pcl::ModelCoefficients);
+        cube_seg.setModelType(pcl::SACMODEL_PLANE);
+        cube_seg.setMethodType(pcl::SAC_RANSAC);
+        cube_seg.setDistanceThreshold(0.05);  
+        cube_seg.setInputCloud(cube_cloud);
+        cube_seg.segment(*cube_inliers, *cube_coefficients);    // Segment the first plane (one face of the cube)
+
+        // Normal of the first plane
+        Eigen::Vector3f normal1(cube_coefficients->values[0], cube_coefficients->values[1], cube_coefficients->values[2]);
+
+        // Extract the points of the first plane (first face of the cube)
+        pcl::PointCloud<pcl::PointXYZ>::Ptr plane1_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::ExtractIndices<pcl::PointXYZ> cube_extract;
+        cube_extract.setInputCloud(cube_cloud);
+        cube_extract.setIndices(cube_inliers);
+        cube_extract.setNegative(false);  // Extract the points that belong to the plane
+        cube_extract.filter(*plane1_cloud);  
+        Eigen::Vector4f centroid1;
+        pcl::compute3DCentroid(*plane1_cloud, centroid1);   // Compute the centroid of the first plane
+        
+        // Remove the first plane points and find a second plane (another face of the cube)
+        cube_extract.setNegative(true);  // Remove the points of the first plane
+        pcl::PointCloud<pcl::PointXYZ>::Ptr remaining_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        cube_extract.filter(*remaining_cloud);
+        cube_seg.setInputCloud(remaining_cloud);
+        cube_seg.segment(*cube_inliers, *cube_coefficients);
+
+        // Normal of the second plane
+        Eigen::Vector3f normal2(cube_coefficients->values[0], cube_coefficients->values[1], cube_coefficients->values[2]);
+
+        // Extract the points of the second plane
+        pcl::PointCloud<pcl::PointXYZ>::Ptr plane2_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        cube_extract.setInputCloud(remaining_cloud);
+        cube_extract.setIndices(cube_inliers);
+        cube_extract.setNegative(false);  // Extract the second plane
+        cube_extract.filter(*plane2_cloud);
+        Eigen::Vector4f centroid2;
+        pcl::compute3DCentroid(*plane2_cloud, centroid2);   // Compute the centroid of the first plane
+
+        // Convert centroids to 3D vectors (x, y, z) by ignoring the 4th element
+        Eigen::Vector3f centroid1_3d(centroid1[0], centroid1[1], centroid1[2]);
+        Eigen::Vector3f centroid2_3d(centroid2[0], centroid2[1], centroid2[2]);
+
+        // Estimate cube dimensions 
+        pcl::PointXYZ min_point_1, max_point_1;
+        pcl::getMinMax3D(*plane1_cloud, min_point_1, max_point_1);
+
+        // Compute the dimensions of the cube based on the extent of the points
+        float width = max_point_1.x - min_point_1.x;  
+        float length = max_point_1.y - min_point_1.y; 
+        float height = width;                          // Suppose height as width
+
+        // Compute the overall cube centroid using the centroids and normal vectors of both planes.
+        Eigen::Vector3f cube_centroid = centroid1_3d - height/2 * normal1;
+
+        // Estimate the orientation with the normals vector
+        Eigen::Matrix3f rotation_matrix;
+        rotation_matrix.col(0) = normal1.normalized();  // Set the first column to normal1
+        rotation_matrix.col(1) = normal2;    
+        rotation_matrix.col(2) = normal1.cross(normal2).normalized();   // Compute the third column (orthogonal to both)
+        Eigen::Quaternionf orientation(rotation_matrix);    // Convert the rotation matrix to quaternion
+
+        // Print the results for each cube
+        // RCLCPP_INFO(this->get_logger(), "-----");
+        // RCLCPP_INFO(this->get_logger(), "Cube centroid: (%f, %f, %f)", cube_centroid(0), cube_centroid(1), cube_centroid(2));
+        // RCLCPP_INFO(this->get_logger(), "Cube orientation (quaternion): (%f, %f, %f, %f)", orientation.x(), orientation.y(), orientation.z(), orientation.w());
+        // RCLCPP_INFO(this->get_logger(), "Cube dimensions (WxLxH): (%f, %f, %f)", width, length, height);
+        // RCLCPP_INFO(this->get_logger(), "-----");
+
+        //RVIZ
+        // Create a marker for each cube
+        visualization_msgs::msg::Marker marker;
+        marker.header.frame_id = lidar_cloud->header.frame_id;
+        marker.header.stamp = lidar_cloud->header.stamp;
+        marker.ns = "cubes";
+        marker.id = cluster_id++;
+        marker.type = visualization_msgs::msg::Marker::CUBE;
+        marker.action = visualization_msgs::msg::Marker::ADD;
+
+        // Set the position of the cube based on the centroid
+        marker.pose.position.x = cube_centroid(0);
+        marker.pose.position.y = cube_centroid(1);
+        marker.pose.position.z = cube_centroid(2);
+
+        // Set the orientation of the cube
+        marker.pose.orientation.x = orientation.x();
+        marker.pose.orientation.y = orientation.y();
+        marker.pose.orientation.z = orientation.z();
+        marker.pose.orientation.w = orientation.w();
+
+        // Estimate cube size by the bounding box of the points (simple approximation)
+        marker.scale.x = width;
+        marker.scale.y = length;
+        marker.scale.z = height;
+
+        // Set marker color (adjust for each cube if needed)
+        marker.color.r = 0.0f;
+        marker.color.g = 1.0f;
+        marker.color.b = 0.0f;
+        marker.color.a = 1.0f;
+
+        marker.lifetime.sec = 0;   
+        marker.lifetime.nanosec = 500*1e6;
+
+        marker_array.markers.push_back(marker);
+    }
+
+    rviz_lidar_cubes_->publish(marker_array);   
+
+}
+// ----------------------------------------------------------------------------------------------------
 
 
 void Tracker::rviz_pub(){

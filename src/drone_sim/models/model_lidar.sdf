@@ -36,25 +36,25 @@
         <pose>0 0 -0.05 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>200</update_rate>  <!-- Update rate of 200 Hz -->
-        <visualize>true</visualize>    <!-- Visualize the LiDAR rays in Gazebo -->
+        <visualize>false</visualize>    <!-- Visualize the LiDAR rays in Gazebo -->
 
         <!-- Laser scan configuration -->
         <ray>
           <scan>
             <horizontal>
-              <samples>120</samples>      <!-- Number of horizontal samples (360-degree scan) -->
+              <samples>200</samples>      <!-- Number of horizontal samples (360-degree scan) -->
               <min_angle>-3.14159</min_angle>  <!-- Minimum angle (radians, -pi) -->
               <max_angle>3.14159</max_angle>   <!-- Maximum angle (radians, pi) -->
             </horizontal>
             <vertical>
-              <samples>40</samples>           <!-- Number of vertical samples -->
+              <samples>50</samples>           <!-- Number of vertical samples -->
               <min_angle>-1.4</min_angle>  <!-- Minimum vertical angle (-90~ degrees in radians, downward) -->
-              <max_angle>-0.785</max_angle>  <!-- Maximum vertical angle (-45 degrees, horizontal plane) -->
+              <max_angle>-0.61</max_angle>  <!-- Maximum vertical angle (-35 degrees, horizontal plane) -->
             </vertical>
           </scan>
           <range>
             <min>0.1</min>     <!-- Minimum detection range -->
-            <max>10.0</max>    <!-- Maximum detection range -->
+            <max>30.0</max>    <!-- Maximum detection range -->
             <resolution>0.01</resolution>  <!-- Range resolution -->
           </range>
           <noise>
@@ -71,7 +71,7 @@
             <remapping>~/out:=scan</remapping>  <!-- Topic is /drone/laser/scan -->
           </ros>
           <!-- Set output to sensor_msgs/PointCloud to get the same output type as gazebo_ros_laser -->
-          <output_type>sensor_msgs/PointCloud</output_type>
+          <output_type>sensor_msgs/PointCloud2</output_type>
         </plugin>
       </sensor>
 

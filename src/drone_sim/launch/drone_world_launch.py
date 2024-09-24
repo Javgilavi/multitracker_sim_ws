@@ -12,7 +12,7 @@ def generate_launch_description():
     world_path = os.path.join(get_package_share_directory('drone_sim'), 'worlds', 'world.sdf')
 
     # Path to the .sdf drone model file use for this simulator.
-    drone_path = os.path.join(get_package_share_directory('drone_sim'), 'models', 'model.sdf')  # Change model for model_lidar to have drone with lidar
+    drone_path = os.path.join(get_package_share_directory('drone_sim'), 'models', 'model_lidar.sdf')  # Change model for model_lidar to have drone with lidar
 
     # Path to the Gazebo launch file. This file launches Gazebo with ROS 2 integration.
     gazebo_launch_path = os.path.join(get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')
