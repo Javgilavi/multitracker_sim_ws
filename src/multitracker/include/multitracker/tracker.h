@@ -19,6 +19,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
+#include <pcl/common/common.h>
 #include <pcl/common/centroid.h>
 #include <Eigen/Dense>
 using Eigen::MatrixXd;

@@ -506,25 +506,19 @@ void Tracker::drone_update(const sim_msgs::msg::Adsb::SharedPtr msg){
 
 // OPTIONAL. LIDAR DRIVER -----------------------------------------------------------------------------
 void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_cloud){
-    RCLCPP_INFO(this->get_logger(), "LLEGO LIDAR");
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*lidar_cloud, *cloud);
 
-    // RANSAC plane segmentation
+    // RANSAC plane segmentation to extract the ground
     pcl::SACSegmentation<pcl::PointXYZ> seg;
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
     seg.setModelType(pcl::SACMODEL_PLANE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.1);  // Adjust threshold for plane detection
+    seg.setDistanceThreshold(0.1);
     seg.setInputCloud(cloud);
     seg.segment(*inliers, *coefficients);
-
-    if (inliers->indices.size() == 0) {
-        RCLCPP_WARN(this->get_logger(), "No plane detected");
-        return;
-    }
 
     // Extract the points that are not part of the plane (non-ground points)
     pcl::ExtractIndices<pcl::PointXYZ> extract;
@@ -534,8 +528,7 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     extract.filter(*filtered_cloud);
 
-    // ELIMINATE THIS PART
-    RCLCPP_INFO(this->get_logger(), "Filtered point cloud size: %lu", filtered_cloud->points.size());
+    // SHOW LIDAR WITHOUT GROUND ON RVIZ 
     sensor_msgs::msg::PointCloud2 output_msg;
     pcl::toROSMsg(*filtered_cloud, output_msg);
     // Set the header information for the message
@@ -544,18 +537,18 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
     filter_cloud_->publish(output_msg);
 
     // Extract data from the cubes
-    // Separte the cubes by clustering
+    // Separate the cubes by clustering
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-    ec.setClusterTolerance(0.1);  // Adjust based on point spacing
-    ec.setMinClusterSize(50);     // Minimum points for a cluster to be considered a cube
+    ec.setClusterTolerance(0.2); 
+    ec.setMinClusterSize(10);     // Minimum points for a cluster to be considered a cube
     ec.setMaxClusterSize(25000);  // Maximum number of points per cube
     ec.setSearchMethod(tree);
     ec.setInputCloud(filtered_cloud);
     std::vector<pcl::PointIndices> cluster_indices;
-    ec.extract(cluster_indices);
+    ec.extract(cluster_indices);    // Points divide in the different clusters
 
-    visualization_msgs::msg::MarkerArray marker_array;
+    visualization_msgs::msg::MarkerArray marker_array;  // To visualice in RVIZ
     int32_t cluster_id = 0;
 
     // Loop through each cluster (representing each cube)
@@ -566,94 +559,78 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
         for (const auto& idx : indices.indices) {
             cube_cloud->points.push_back(filtered_cloud->points[idx]);
         }
-        
-        // Step 1: Detect planes in the cube
+
+        // Detect first plane in the cube, assume is a face of the cube
         pcl::SACSegmentation<pcl::PointXYZ> cube_seg;
         pcl::PointIndices::Ptr cube_inliers(new pcl::PointIndices);
         pcl::ModelCoefficients::Ptr cube_coefficients(new pcl::ModelCoefficients);
-
         cube_seg.setModelType(pcl::SACMODEL_PLANE);
         cube_seg.setMethodType(pcl::SAC_RANSAC);
-        cube_seg.setDistanceThreshold(0.05);  // Adjust this based on the noise level
+        cube_seg.setDistanceThreshold(0.05);  
         cube_seg.setInputCloud(cube_cloud);
+        cube_seg.segment(*cube_inliers, *cube_coefficients);    // Segment the first plane (one face of the cube)
 
-        // Step 2: Segment the first plane (one face of the cube)
-        cube_seg.segment(*cube_inliers, *cube_coefficients);
-        
-        if (cube_inliers->indices.size() == 0) {
-            RCLCPP_WARN(this->get_logger(), "No plane detected in cube");
-            continue;  // Move to the next cluster if no plane is found
-        }
+        // Normal of the first plane
+        Eigen::Vector3f normal1(cube_coefficients->values[0], cube_coefficients->values[1], cube_coefficients->values[2]);
 
-        // Step 3: Extract the points of the first plane (first face of the cube)
+        // Extract the points of the first plane (first face of the cube)
         pcl::PointCloud<pcl::PointXYZ>::Ptr plane1_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::ExtractIndices<pcl::PointXYZ> cube_extract;
         cube_extract.setInputCloud(cube_cloud);
         cube_extract.setIndices(cube_inliers);
         cube_extract.setNegative(false);  // Extract the points that belong to the plane
-        cube_extract.filter(*plane1_cloud);
-
-        // Step 4: Compute the centroid of the first plane
+        cube_extract.filter(*plane1_cloud);  
         Eigen::Vector4f centroid1;
-        pcl::compute3DCentroid(*plane1_cloud, centroid1);
+        pcl::compute3DCentroid(*plane1_cloud, centroid1);   // Compute the centroid of the first plane
         
-        // Step 5: Remove the first plane points and find a second plane (another face of the cube)
+        // Remove the first plane points and find a second plane (another face of the cube)
         cube_extract.setNegative(true);  // Remove the points of the first plane
         pcl::PointCloud<pcl::PointXYZ>::Ptr remaining_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         cube_extract.filter(*remaining_cloud);
-
         cube_seg.setInputCloud(remaining_cloud);
         cube_seg.segment(*cube_inliers, *cube_coefficients);
 
-        if (cube_inliers->indices.size() == 0) {
-            RCLCPP_WARN(this->get_logger(), "Only one plane detected for this cube");
-            continue;  // Move to the next cluster if no second plane is found
-        }
+        // Normal of the second plane
+        Eigen::Vector3f normal2(cube_coefficients->values[0], cube_coefficients->values[1], cube_coefficients->values[2]);
 
-        // Step 6: Extract the points of the second plane
+        // Extract the points of the second plane
         pcl::PointCloud<pcl::PointXYZ>::Ptr plane2_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         cube_extract.setInputCloud(remaining_cloud);
         cube_extract.setIndices(cube_inliers);
         cube_extract.setNegative(false);  // Extract the second plane
         cube_extract.filter(*plane2_cloud);
-
-        // Step 7: Compute the centroid of the second plane
         Eigen::Vector4f centroid2;
-        pcl::compute3DCentroid(*plane2_cloud, centroid2);
+        pcl::compute3DCentroid(*plane2_cloud, centroid2);   // Compute the centroid of the first plane
 
-        // Step 8: Compute the overall cube centroid as the midpoint between the two centroids. CAMBIAR
-        Eigen::Vector4f cube_centroid = (centroid1 + centroid2) / 2.0;
+        // Convert centroids to 3D vectors (x, y, z) by ignoring the 4th element
+        Eigen::Vector3f centroid1_3d(centroid1[0], centroid1[1], centroid1[2]);
+        Eigen::Vector3f centroid2_3d(centroid2[0], centroid2[1], centroid2[2]);
 
-        // Step 9: Estimate the cube orientation using the normals of the two planes
-        Eigen::Vector3f normal1(cube_coefficients->values[0], cube_coefficients->values[1], cube_coefficients->values[2]);
+        // Estimate cube dimensions 
+        pcl::PointXYZ min_point_1, max_point_1;
+        pcl::getMinMax3D(*plane1_cloud, min_point_1, max_point_1);
 
-        // Assuming the second plane is perpendicular, you can estimate the orientation
-        // Example: Construct a rotation matrix using normal1 and an arbitrary perpendicular vector
+        // Compute the dimensions of the cube based on the extent of the points
+        float width = max_point_1.x - min_point_1.x;  
+        float length = max_point_1.y - min_point_1.y; 
+        float height = width;                          // Suppose height as width
+
+        // Compute the overall cube centroid using the centroids and normal vectors of both planes.
+        Eigen::Vector3f cube_centroid = centroid1_3d - height/2 * normal1;
+
+        // Estimate the orientation with the normals vector
         Eigen::Matrix3f rotation_matrix;
         rotation_matrix.col(0) = normal1.normalized();  // Set the first column to normal1
-
-        // Compute another vector to complete the rotation matrix
-        Eigen::Vector3f arbitrary_vector(0, 1, 0);  // This is an arbitrary vector
-        Eigen::Vector3f normal2 = normal1.cross(arbitrary_vector).normalized();
-        rotation_matrix.col(1) = normal2;
-
-        // Compute the third column (orthogonal to both)
-        rotation_matrix.col(2) = normal1.cross(normal2).normalized();
-
-        // Convert the rotation matrix to quaternion
-        Eigen::Quaternionf orientation(rotation_matrix);
-
-        // Step 10: Estimate cube dimensions (using distance between centroids and point extents)
-        float height = std::abs(centroid1(2) - centroid2(2));  // Height based on Z-axis distance
-        float width = plane1_cloud->width;   // Example for width (adjust based on your planes)
-        float length = plane1_cloud->height; // Example for length
+        rotation_matrix.col(1) = normal2;    
+        rotation_matrix.col(2) = normal1.cross(normal2).normalized();   // Compute the third column (orthogonal to both)
+        Eigen::Quaternionf orientation(rotation_matrix);    // Convert the rotation matrix to quaternion
 
         // Print the results for each cube
-        RCLCPP_INFO(this->get_logger(), "-----");
-        RCLCPP_INFO(this->get_logger(), "Cube centroid: (%f, %f, %f)", cube_centroid(0), cube_centroid(1), cube_centroid(2));
-        RCLCPP_INFO(this->get_logger(), "Cube orientation (quaternion): (%f, %f, %f, %f)", orientation.x(), orientation.y(), orientation.z(), orientation.w());
-        RCLCPP_INFO(this->get_logger(), "Cube dimensions (WxLxH): (%f, %f, %f)", width, length, height);
-        RCLCPP_INFO(this->get_logger(), "-----");
+        // RCLCPP_INFO(this->get_logger(), "-----");
+        // RCLCPP_INFO(this->get_logger(), "Cube centroid: (%f, %f, %f)", cube_centroid(0), cube_centroid(1), cube_centroid(2));
+        // RCLCPP_INFO(this->get_logger(), "Cube orientation (quaternion): (%f, %f, %f, %f)", orientation.x(), orientation.y(), orientation.z(), orientation.w());
+        // RCLCPP_INFO(this->get_logger(), "Cube dimensions (WxLxH): (%f, %f, %f)", width, length, height);
+        // RCLCPP_INFO(this->get_logger(), "-----");
 
         //RVIZ
         // Create a marker for each cube
@@ -677,12 +654,9 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
         marker.pose.orientation.w = orientation.w();
 
         // Estimate cube size by the bounding box of the points (simple approximation)
-        // marker.scale.x = width;
-        // marker.scale.y = length;
-        // marker.scale.z = height;
-        marker.scale.x = 0.5;
-        marker.scale.y = 0.5;
-        marker.scale.z = 0.5;
+        marker.scale.x = width;
+        marker.scale.y = length;
+        marker.scale.z = height;
 
         // Set marker color (adjust for each cube if needed)
         marker.color.r = 0.0f;

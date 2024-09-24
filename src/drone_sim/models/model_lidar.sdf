@@ -42,19 +42,19 @@
         <ray>
           <scan>
             <horizontal>
-              <samples>120</samples>      <!-- Number of horizontal samples (360-degree scan) -->
+              <samples>200</samples>      <!-- Number of horizontal samples (360-degree scan) -->
               <min_angle>-3.14159</min_angle>  <!-- Minimum angle (radians, -pi) -->
               <max_angle>3.14159</max_angle>   <!-- Maximum angle (radians, pi) -->
             </horizontal>
             <vertical>
-              <samples>40</samples>           <!-- Number of vertical samples -->
+              <samples>50</samples>           <!-- Number of vertical samples -->
               <min_angle>-1.4</min_angle>  <!-- Minimum vertical angle (-90~ degrees in radians, downward) -->
-              <max_angle>-0.785</max_angle>  <!-- Maximum vertical angle (-45 degrees, horizontal plane) -->
+              <max_angle>-0.61</max_angle>  <!-- Maximum vertical angle (-35 degrees, horizontal plane) -->
             </vertical>
           </scan>
           <range>
             <min>0.1</min>     <!-- Minimum detection range -->
-            <max>10.0</max>    <!-- Maximum detection range -->
+            <max>30.0</max>    <!-- Maximum detection range -->
             <resolution>0.01</resolution>  <!-- Range resolution -->
           </range>
           <noise>
