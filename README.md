@@ -24,6 +24,17 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
 - **Gazebo Classic**
 - **Ubuntu 22.04**
 
+## Steps for the Training
+
+1. **Transform ADS-B tracks from global to local**
+2. **Track Cube1 from its ADS-B data using Kalman Filter**
+3. **Create a list to track all 3 cubes at the same time**
+4. **strengthen the multitracker (random dissaparence, low-pass filter, ...)**
+5. **Add LIDAR measurement using a driver to get tracks**
+6. **Matching of LIDAR tracks with obstacle in the list**
+7. **New matrix in Kalman Filter for LIDAR tracks**
+8. **Final testings**
+
 ## Compilation Instructions
 
 1. **Build the project**:
@@ -75,10 +86,27 @@ The **multitracker** node uses a Kalman filter to predict and update the state o
    ros2 run multitracker tracker
    ```
 
-   This node currently only tracks **cube 1** via ADS-B.
-
-2. **Visualization in RViz2**:
    The tracking data for the cubes is published on the `/cube/marker` topic in **Marker** or **MarkerArray** format, and can be visualized in **RViz2**.
+
+   You can also launch both the `tracker` node with **RViz2**, with its adapted configuration, using:
+
+   ```bash
+   ros2 launch multitracker tracker_launch.py
+   ```
+
+2. **Error visualization**:
+When you stop the `multitracker` node with `CTRL+C`, the **RMSE** of position and orientation for each tracked obstacle will be displayed. Additionally, the error data will be saved in `error_data.txt` in the workspace.
+
+To visualize the errors, run the Python script:
+
+```bash
+python3 /home/flyros/multitracker_sim_ws/error_plotter.py
+```
+
+This script generates graphs for positional and orientational errors for each tracked obstacle.
+
+> [!NOTE]
+> This node currently only tracks **cube 1** via ADS-B.
 
 ## Important Topics
 
