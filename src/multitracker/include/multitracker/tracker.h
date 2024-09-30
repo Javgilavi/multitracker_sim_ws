@@ -15,6 +15,7 @@
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 #include "sim_msgs/msg/adsb.hpp"
+#include <fstream>
 
 // Structure for dimensions
 struct Dimension{
