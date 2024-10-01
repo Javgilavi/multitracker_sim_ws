@@ -8,6 +8,8 @@
 
 #include "multitracker/tracker.h"   // Library with all dependencies and declarations
 
+int new_id = 4;
+
 // Map to store position and orientation errors for each ID
 std::unordered_map<int, std::vector<double>> pos_error_x_map;
 std::unordered_map<int, std::vector<double>> pos_error_y_map;
@@ -94,6 +96,21 @@ SensorData median_sensordata(std::vector<SensorData> data_buffer){
 }
 
 
+// 1.5 DISTANCE FUNCTION FOR MATCHING -----------------------------------------------------------------------------------
+double distance(const SensorData& data1, const SensorData& data2){
+    double dist;
+
+    double dist_x = data1.position.x - data2.position.x;
+    double dist_y = data1.position.y - data2.position.y;
+    double dist_z = data1.position.z - data2.position.z;
+
+    dist = std::sqrt(std::pow(dist_x, 2) + std::pow(dist_y, 2) + std::pow(dist_z, 2));
+    // Return the Euclidean distance
+    return dist;
+}
+// ----------------------------------------------------------------------------------------------------------------------
+
+
 Tracker::Tracker() : Node("simple_tracker"){
 
     // Store the time the node starts
@@ -116,6 +133,63 @@ Tracker::Tracker() : Node("simple_tracker"){
     timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Tracker::kalman_predict, this));
     timer2_ = this->create_wall_timer(std::chrono::milliseconds(200), std::bind(&Tracker::rviz_pub, this));
 }
+
+
+// 1. MATCHING SYSTEM BETWEEN LIDAR TRACES WITH THE OBSTACLE LIST ----------------------------------------------------------
+void Tracker::matching(std::vector<SensorData> lidar_traces){ 
+    // If for a X lidar trace the minimum distance is with Y obstacle in list, and for Y obstacle the minimum distance is also with X lidar is a MATCH
+    // If not, and X lidar trace has more distance than distance threshold to all obstacle in the list, considere a new obstacle and add new ID
+
+    std::vector<SensorData> lidar_matched;
+
+    double match_threshold = 0.5;             // Theshold of distance to considere a matchdouble min_dist;   
+    double min_dist;
+    SensorData obs_match, trace_match;
+
+    // int i = 1;
+    for (auto& trace : lidar_traces) {
+        min_dist = match_threshold;
+        // RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
+        for (auto& obs : obs_list) {
+            double dist = distance(trace, obs);                 // Calculate distance between the trace and the obstacle
+            if(dist < min_dist){
+                obs_match = obs;                                // Update minimum distance and obstacle for possible match
+                min_dist = dist;
+            }
+        }
+        
+        // Only analice if there was a match, if not creare new data giving it an ID
+        if(obs_match.id != 0){   
+            // RCLCPP_INFO(this->get_logger(), "Posible match con %d", obs_match.id);
+            // Once we have possible obstacle match for the trace, check if for that obstacle the trace is also its minimum distance value
+            for(auto& trace2 : lidar_traces){
+                double dist = distance(trace2, obs_match);    // Calculate distance between the obstacle and all trace
+                if(dist <= min_dist){
+                    trace_match = trace2;                     // Update minimum distance and trace with minimum distance to this obstacle
+                    min_dist = dist;
+                }
+            }
+
+            // Only if trace with minimum distance to the obstacle possible match is the same as original trace we do a match
+            if(trace_match.position.x == trace.position.x){
+                trace.id = obs_match.id;
+                trace.timestamp = this->now();
+                lidar_matched.push_back(trace);
+                lowpass_filter(trace);
+                // RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
+            }
+        } else{
+            // In case is a new data create it
+            trace.id = new_id++;
+            trace.data_type = 1;            // LIDAR
+            trace.timestamp = this->now();
+            // RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
+            kalman_update(trace);
+        }
+    }
+    // RCLCPP_INFO(this->get_logger(), "-------");
+}
+// -------------------------------------------------------------------------------------------------------------------------
 
 
 void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){ 
@@ -176,38 +250,38 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         }
 
         // Skip publishing for the cubes based on a threshold (e.g., 50% chance)
-        if (random_value > 1) {
+        if (random_value > 0.75) {
             // RCLCPP_INFO(this->get_logger(), "Skipping publication for Cube%d", fix_state.id);
             return;  // Don't pass the data
         }
 
-        // From 60s to 80s the cube3 ADS-B won't be publish to test
-        if(fix_state.id == 3 && (this->now()-start_time_).seconds() > 60 && (this->now()-start_time_).seconds() < 80){
-            // RCLCPP_INFO(this->get_logger(), "Cube3 doesnt publish");
+        // From 30s to 50s the cube2 ADS-B won't be publish to test
+        if(fix_state.id == 2 && (this->now()-start_time_).seconds() > 30 && (this->now()-start_time_).seconds() < 50){
+            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish");
             return;  // Don't pass the message
         }
 
-        // Send the fixed sensor to the low-pass filter
-        lowpass_filter(fix_state);
+        // Send the fixed sensor to the kalman update
+        SensorData obs;
+        obs.id = fix_state.id;
+        obs.position = fix_state.pose.position;
+        obs.orientation = fix_state.pose.orientation;
+        obs.vel = fix_state.twist.linear;
+        obs.size.width = fix_state.size.width;
+        obs.size.length = fix_state.size.length;
+        obs.size.height = fix_state.size.height;
+        obs.data_type = 0;                          // ADS-B
+        obs.timestamp = this->now();
+        kalman_update(obs);
     }
 }
 
 
-void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){ 
+void Tracker::lowpass_filter(const SensorData obs){ 
 
     // Define quantity of data for the buffer of low-pass filter
     uint32_t n_buffer = 10;
-    
-    // Change data to SensorData format
-    SensorData obs;
-    obs.id = fix_state.id;
-    obs.position = fix_state.pose.position;
-    obs.orientation = fix_state.pose.orientation;
-    obs.vel = fix_state.twist.linear;
-    obs.size.width = fix_state.size.width;
-    obs.size.length = fix_state.size.length;
-    obs.size.height = fix_state.size.height;
-    obs.timestamp = this->now();
+
 
     // Search the buffer on the list with the same ID
     for (auto& obs_buffer : obs_buffer_list){
@@ -225,6 +299,8 @@ void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){
             if(obs_buffer.size() == n_buffer){
                 SensorData median_obs;
                 median_obs = median_sensordata(obs_buffer);
+                median_obs.data_type = 1;   // LIDAR 
+                median_obs.timestamp = this->now();
 
                 // Send the low-pass filter data with median for kalman update
                 kalman_update(median_obs);     
@@ -252,43 +328,79 @@ void Tracker::kalman_update(const SensorData median_state){
     // Vector of data recieve from the sensor
     VectorXd sensorData(13); 
 
-    // C Matrix of the reading module
+    // 2 CHANGE KALMAN FILTER UPDATE FOR EACH SENSOR DATA -------------------------------------------------------
+    // C Matrix of the reading module || R Matrix for noise acknowledge of the sensor t the filter.
     MatrixXd C(13,13);
-    C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
-
-    // R Matrix for noise acknowledge of the sensor t the filter. Change to 0.1
     MatrixXd R(13,13);
-    R << 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
-    
+
     // Get each obstacle in the list
     for (auto& obs : obs_list) {
 
         // Only update the obstacle in the list with the same ID
         if(obs.id == median_state.id){
+
+            if(obs.data_type == 0){ // ADS-B data
+    
+                C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
+
+                R << 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
+                std::cout << "LLEGO AIS" << std::endl;
+            } else if(obs.data_type == 1){  // LIDAR data
+
+                C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // LIDAR doesnt update velocity
+                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
+
+                R << 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Change the noise assume for this data
+                    0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Pose XYZ is less accurate than ADS-B but its reliable
+                    0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Orientation is not much reliable
+                    0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // No velocity data
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0,       // Size is not much reliable
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100;
+            }
+            
+            // 2 -------------------------------------------------------------------------------------------------------
 
             // Before updating with kalman, always predict
             kalman_predict();   // Revisar quitar este predict o hacer que solo prediga el obstaculo en cuestion
@@ -507,6 +619,8 @@ void Tracker::drone_update(const sim_msgs::msg::Adsb::SharedPtr msg){
 // OPTIONAL. LIDAR DRIVER -----------------------------------------------------------------------------
 void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_cloud){
 
+    std::vector<SensorData> lidar_traces;    // Vector to send LIDAR traces after process
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*lidar_cloud, *cloud);
 
@@ -632,6 +746,20 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
         // RCLCPP_INFO(this->get_logger(), "Cube dimensions (WxLxH): (%f, %f, %f)", width, length, height);
         // RCLCPP_INFO(this->get_logger(), "-----");
 
+        // Enter trace of the cube in the vector to send
+        SensorData trace;
+        trace.position.x = cube_centroid(0);
+        trace.position.y = cube_centroid(1);
+        trace.position.z = cube_centroid(2);
+        trace.orientation.x = orientation.x();
+        trace.orientation.y = orientation.y();
+        trace.orientation.z = orientation.z();
+        trace.orientation.w = orientation.w();
+        trace.size.width = width;
+        trace.size.length = length;
+        trace.size.height = height;
+        lidar_traces.push_back(trace);
+
         //RVIZ
         // Create a marker for each cube
         visualization_msgs::msg::Marker marker;
@@ -670,7 +798,10 @@ void Tracker::driver_lidar(const sensor_msgs::msg::PointCloud2::SharedPtr lidar_
         marker_array.markers.push_back(marker);
     }
 
-    rviz_lidar_cubes_->publish(marker_array);   
+    rviz_lidar_cubes_->publish(marker_array);
+
+    // Pass the lidar_traces to the matching system
+    matching(lidar_traces);
 
 }
 // ----------------------------------------------------------------------------------------------------
@@ -683,7 +814,6 @@ void Tracker::rviz_pub(){
 
     for (auto& obs : obs_list) {
         visualization_msgs::msg::Marker marker;
-
         marker.header.frame_id = "base_link";
         marker.header.stamp = this->now();
 
@@ -722,6 +852,11 @@ void Tracker::rviz_pub(){
             marker.color.g = 0.0f;
             marker.color.b = 1.0f;
             marker.color.a = 1.0f;
+        } else{
+            marker.color.r = 0.0f;
+            marker.color.g = 0.0f;
+            marker.color.b = 0.0f;
+            marker.color.a = 1.0f; 
         }
 
         // Push the cube marker to the marker array

@@ -106,7 +106,7 @@ python3 /home/flyros/multitracker_sim_ws/error_plotter.py
 This script generates graphs for positional and orientational errors for each tracked obstacle.
 
 > [!NOTE]
-> This node currently only **tracks via ADS-B** and has a **driver for the lidar**, but doesn't read from it.
+> This node currently **tracks via ADS-B and LiDAR**.
    
 
 ## Important Topics

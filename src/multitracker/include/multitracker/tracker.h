@@ -41,6 +41,7 @@ struct Dimension{
 // Structure to store sensordata as state of a tracked obstacle
 struct SensorData{
     int id;
+    int data_type;                          // 0:ADS-B | 1:LIDAR
     geometry_msgs::msg::Point position;
     geometry_msgs::msg::Quaternion orientation;
     geometry_msgs::msg::Vector3 vel;
@@ -64,11 +65,14 @@ class Tracker : public rclcpp::Node {
         Tracker();
 
     private:
+        // Matching system for lidar tarces with the obstacle on the list
+        void matching(const std::vector<SensorData> lidar_traces);
+
         // Callback for the data received from the cube1 ADSB and transform from global to local (drone).
         void data_recieve(const sim_msgs::msg::Adsb::SharedPtr msg);
 
         // Apply a low-pass filter before entering the data rom the sensor to Kalman
-        void lowpass_filter(const sim_msgs::msg::Adsb fix_state);
+        void lowpass_filter(const SensorData obs);
 
         // Update the state of the tracked cube with the data received.
         void kalman_update(const SensorData median_state);
