@@ -98,13 +98,15 @@ SensorData median_sensordata(std::vector<SensorData> data_buffer){
 
 // 1.5 DISTANCE FUNCTION FOR MATCHING -----------------------------------------------------------------------------------
 double distance(const SensorData& data1, const SensorData& data2){
+    double dist;
 
     double dist_x = data1.position.x - data2.position.x;
     double dist_y = data1.position.y - data2.position.y;
     double dist_z = data1.position.z - data2.position.z;
 
+    dist = std::sqrt(std::pow(dist_x, 2) + std::pow(dist_y, 2) + std::pow(dist_z, 2));
     // Return the Euclidean distance
-    return std::sqrt(std::pow(dist_x, 2) + std::pow(dist_y, 2) + std::pow(dist_z, 2));
+    return dist;
 }
 // ----------------------------------------------------------------------------------------------------------------------
 
