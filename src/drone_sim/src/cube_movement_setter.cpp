@@ -6,6 +6,12 @@
 
 float vel_x = 0;
 float vel_y = 0;
+float vel1_x = 0;
+float vel1_y = 0;
+float vel2_x = 0;
+float vel2_y = 0;
+float vel3_x = 0;
+float vel3_y = 0;
 
 class CubeMover : public rclcpp::Node {
 public:
@@ -34,7 +40,9 @@ public:
         }
 
         // Create a timer to periodically publish
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(100), [this]() {this->get_state("cube1");});  // Call get_state with the argument "cube1"
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(50), [this]() {this->get_state("cube1");}); 
+        timer2_ = this->create_wall_timer(std::chrono::milliseconds(50), [this]() {this->get_state("cube2");});
+        timer3_ = this->create_wall_timer(std::chrono::milliseconds(50), [this]() {this->get_state("cube3");});
     }
 
 private:
@@ -47,6 +55,20 @@ private:
         // Set the name of the cube (entity) to be moved
         request->state = previous_state;
 
+        // Take the previous vel of the cube to move
+        if(previous_state.name == "cube1"){
+            vel_x = vel1_x;
+            vel_y = vel1_y;
+        }
+        if(previous_state.name == "cube2"){
+            vel_x = vel2_x;
+            vel_y = vel2_y;
+        }
+        if(previous_state.name == "cube3"){
+            vel_x = vel3_x;
+            vel_y = vel3_y;
+        }
+
         // Set the velocity (twist)
         request->state.twist.linear.x = vel_x;  // Velocity on the X-axis
         request->state.twist.linear.y = vel_y;
@@ -57,14 +79,14 @@ private:
         request->state.twist.angular.z = 0.0;
 
         // Randomly update the velocities
-        vel_x = vel_x + (static_cast<double>(rand()) / RAND_MAX) * 0.5 - 0.25;
-        vel_y = vel_y + (static_cast<double>(rand()) / RAND_MAX) * 0.5 - 0.25;
+        vel_x = vel_x + (static_cast<double>(rand()) / RAND_MAX) * 0.2 - 0.1;
+        vel_y = vel_y + (static_cast<double>(rand()) / RAND_MAX) * 0.2 - 0.1;
 
         // Set velocity limits
-        if (vel_x >= 1) vel_x = 1;
-        if (vel_x <= -1) vel_x = -1;
-        if (vel_y >= 1) vel_y = 1;
-        if (vel_y <= -1) vel_y = -1;
+        if (vel_x >= 0.5) vel_x = 0.5;
+        if (vel_x <= -0.5) vel_x = -0.5;
+        if (vel_y >= 0.5) vel_y = 0.5;
+        if (vel_y <= -0.5) vel_y = -0.5;
 
         // Send the request to the service
         auto future = clientSet_->async_send_request(request, [this](rclcpp::Client<gazebo_msgs::srv::SetEntityState>::SharedFuture future) { 
@@ -83,6 +105,20 @@ private:
                 }
             }
         );
+
+        // Reupdate the values of the vel of the cube
+        if(previous_state.name == "cube1"){
+            vel1_x = vel_x;
+            vel1_y = vel_y;
+        }
+        if(previous_state.name == "cube2"){
+            vel2_x = vel_x;
+            vel2_y = vel_y;
+        }
+        if(previous_state.name == "cube3"){
+            vel3_x = vel_x;
+            vel3_y = vel_y;
+        }
     }
 
     // Function to get the state
@@ -113,6 +149,8 @@ private:
     rclcpp::Client<gazebo_msgs::srv::SetEntityState>::SharedPtr clientSet_;
     rclcpp::Client<gazebo_msgs::srv::GetEntityState>::SharedPtr clientGet_;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::TimerBase::SharedPtr timer2_;
+    rclcpp::TimerBase::SharedPtr timer3_;
 };
 
 int main(int argc, char **argv) {
