@@ -39,7 +39,7 @@ Tracker::Tracker() : Node("simple_tracker"){
     rviz_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("cube/marker", 10);
 
     // Create a timer to publish periodically predict the tracked state, also other to publish in rviz2
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&Tracker::kalman_predict, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Tracker::kalman_predict, this));
     timer2_ = this->create_wall_timer(std::chrono::milliseconds(200), std::bind(&Tracker::rviz_pub, this));
 }
 
@@ -50,7 +50,6 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
 
     // Only transform from global to local if we have drone state. Now we only use cube1
     if(drone_state.id == 0 && sensor_state->id == 1){
-        sim_msgs::msg::Adsb prefix_state = *sensor_state;
         sim_msgs::msg::Adsb fix_state = *sensor_state;
 
         // Substract drone pose, orientation and velocity to the sensor datas for fixing it to be relative to the drone state
@@ -69,6 +68,7 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
 
 
         // Print the fixed position to check the results
+        // sim_msgs::msg::Adsb prefix_state = *sensor_state;
         // RCLCPP_INFO(this->get_logger(), "Data before fixing: X: %f, Y: %f, Z: %f", prefix_state.pose.position.x, prefix_state.pose.position.y, prefix_state.pose.position.z);
         // RCLCPP_INFO(this->get_logger(), "Data after fixing: X: %f, Y: %f, Z: %f", fix_state.pose.position.x, fix_state.pose.position.y, fix_state.pose.position.z);
         // RCLCPP_INFO(this->get_logger(), "---------------------");
@@ -94,8 +94,19 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         ori_error_z_map[obs.id].push_back(ori_error_z_val);
         ori_error_w_map[obs.id].push_back(ori_error_w_val);
 
+        // Send the fixed sensor to the kalman update
+        SensorData fix_obs;
+        fix_obs.id = fix_state.id;
+        fix_obs.position = fix_state.pose.position;
+        fix_obs.orientation = fix_state.pose.orientation;
+        fix_obs.vel = fix_state.twist.linear;
+        fix_obs.size.width = fix_state.size.width;
+        fix_obs.size.length = fix_state.size.length;
+        fix_obs.size.height = fix_state.size.height;
+        fix_obs.timestamp = this->now();
+
         // Send the fixed sensor for kalman update
-        kalman_update(fix_state);
+        kalman_update(fix_obs);
     }
 
     // 1. ---------------------------------------------------------------------------------------------------------------
@@ -183,7 +194,7 @@ void Tracker::kalman_predict(){
 }
 
 
-void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){ 
+void Tracker::kalman_update(const SensorData fix_state){ 
     // 2. DEVELOPE THE KALMAN UPDATE FOR THE TRACKER
     
     // Before updating with kalman, always predict
@@ -193,29 +204,14 @@ void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){
     VectorXd state(13);     // State is [x, y, z, angx, angy, angz, angw, vx, vy, vz, width, length, height]
     MatrixXd covariance(13,13);
     
+    // Vector of data recieve from the sensor
+    VectorXd sensorData(13); 
+
     // Give the vector and matrix the previous value store from Kalman
     state = obs.state;
     covariance = obs.covariance;
 
-    // Vector of data recieve from the sensor
-    VectorXd sensorData(13); 
-
-    // Fill the sensorData with the fixed state of the cube to the drone
-    sensorData(0) = fix_state.pose.position.x;
-    sensorData(1) = fix_state.pose.position.y;
-    sensorData(2) = fix_state.pose.position.z;
-    sensorData(3) = fix_state.pose.orientation.x;
-    sensorData(4) = fix_state.pose.orientation.y;
-    sensorData(5) = fix_state.pose.orientation.z;
-    sensorData(6) = fix_state.pose.orientation.w;
-    sensorData(7) = fix_state.twist.linear.x;
-    sensorData(8) = fix_state.twist.linear.y;
-    sensorData(9) = fix_state.twist.linear.z;
-    sensorData(10) = fix_state.size.width;
-    sensorData(11) = fix_state.size.length;
-    sensorData(12) = fix_state.size.height;
-
-    // C Matrix of the medition modelo
+        // C Matrix of the medition modelo
     MatrixXd C(13,13);
     C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
          0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -247,6 +243,22 @@ void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){
          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0,
          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0,
          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01;
+
+
+    // Fill the sensorData with the fixed state of the cube to the drone
+    sensorData(0) = fix_state.position.x;
+    sensorData(1) = fix_state.position.y;
+    sensorData(2) = fix_state.position.z;
+    sensorData(3) = fix_state.orientation.x;
+    sensorData(4) = fix_state.orientation.y;
+    sensorData(5) = fix_state.orientation.z;
+    sensorData(6) = fix_state.orientation.w;
+    sensorData(7) = fix_state.vel.x;
+    sensorData(8) = fix_state.vel.y;
+    sensorData(9) = fix_state.vel.z;
+    sensorData(10) = fix_state.size.width;
+    sensorData(11) = fix_state.size.length;
+    sensorData(12) = fix_state.size.height;
         
     // Calculate Kalman Gain
     MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();

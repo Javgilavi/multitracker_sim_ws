@@ -47,14 +47,15 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
       Value: true
-    - Class: rviz_default_plugins/MarkerArray
+    - Class: rviz_default_plugins/Marker
       Enabled: true
-      Name: MarkerArray
+      Name: Marker
       Namespaces:
         "": true
       Topic:
         Depth: 5
         Durability Policy: Volatile
+        Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /cube/marker
@@ -112,18 +113,18 @@ Visualization Manager:
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
+        X: 0.2538861036300659
+        Y: -0.6357436776161194
+        Z: 0.09921574592590332
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.3497965335845947
+      Pitch: 0.914796769618988
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.8685832023620605
+      Yaw: 4.818582534790039
     Saved: ~
 Window Geometry:
   Displays:
