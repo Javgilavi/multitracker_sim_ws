@@ -106,7 +106,7 @@ python3 /home/flyros/multitracker_sim_ws/error_plotter.py
 This script generates graphs for positional and orientational errors for each tracked obstacle.
 
 > [!NOTE]
-> This node currently only **transform from global to local** the Cube1 ADS-B data.
+> This node is just to **start the training**.
 
 ## Important Topics
 
