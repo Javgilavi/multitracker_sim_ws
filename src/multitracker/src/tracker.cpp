@@ -149,10 +149,6 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         fix_state.twist.linear.y = fix_state.twist.linear.y - drone_state.twist.linear.y;
         fix_state.twist.linear.z = fix_state.twist.linear.z - drone_state.twist.linear.z;
 
-        fix_state.twist.angular.x = fix_state.twist.angular.x - drone_state.twist.angular.x;
-        fix_state.twist.angular.y = fix_state.twist.angular.y - drone_state.twist.angular.y;
-        fix_state.twist.angular.z = fix_state.twist.angular.z - drone_state.twist.angular.z;
-
         // For taking the error of the output list with the real state ----------------------------
         for (auto& obs : obs_list) {
             if (obs.id == fix_state.id) {
@@ -181,38 +177,36 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         // -------------------------------------------------------------------------------------------
 
         // Skip publishing for the cubes based on a threshold (e.g., 50% chance)
-        if (random_value > 1) {
+        if (random_value > 0.5) {
             RCLCPP_INFO(this->get_logger(), "Skipping publication for Cube%d", fix_state.id);
             return;  // Don't pass the data
         }
 
-        // From 60s to 80s the cube3 ADS-B won't be publish to test
-        if(fix_state.id == 3 && (this->now()-start_time_).seconds() > 60 && (this->now()-start_time_).seconds() < 80){
-            RCLCPP_INFO(this->get_logger(), "Cube3 doesnt publish");
+        // From 30s to 50s the cube2 ADS-B won't be publish to test
+        if(fix_state.id == 2 && (this->now()-start_time_).seconds() > 30 && (this->now()-start_time_).seconds() < 50){
+            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish");
             return;  // Don't pass the message
         }
 
         // Send the fixed sensor to the low-pass filter
-        lowpass_filter(fix_state);
+        SensorData obs;
+        obs.id = fix_state.id;
+        obs.position = fix_state.pose.position;
+        obs.orientation = fix_state.pose.orientation;
+        obs.vel = fix_state.twist.linear;
+        obs.size.width = fix_state.size.width;
+        obs.size.length = fix_state.size.length;
+        obs.size.height = fix_state.size.height;
+        obs.timestamp = this->now();
+        lowpass_filter(obs);
     }
 }
 
 // 1. MAKE A LOW-PASS FILTER FOR THE INPUT DATA OF THE SENSORS --------------------------------------------
-void Tracker::lowpass_filter(const sim_msgs::msg::Adsb fix_state){ 
+void Tracker::lowpass_filter(const SensorData obs){ 
 
     // Define quantity of data for the buffer of low-pass filter
     uint32_t n_buffer = 10;
-    
-    // Change data to SensorData format
-    SensorData obs;
-    obs.id = fix_state.id;
-    obs.position = fix_state.pose.position;
-    obs.orientation = fix_state.pose.orientation;
-    obs.vel = fix_state.twist.linear;
-    obs.size.width = fix_state.size.width;
-    obs.size.length = fix_state.size.length;
-    obs.size.height = fix_state.size.height;
-    obs.timestamp = this->now();
 
     // Search the buffer on the list with the same ID
     for (auto& obs_buffer : obs_buffer_list){
@@ -321,14 +315,6 @@ void Tracker::kalman_update(const SensorData median_state){
             // Calculate Kalman Gain
             MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
 
-            // Print to check results
-            // std::cout << " C'*Q*C: \n" << C*covariance*C.transpose() << std::endl;
-            // std::cout << " (C'*Q*C+R)^-1: \n" << (C*covariance*C.transpose() + R).inverse() << std::endl;
-            // std::cout << " Ganancia de Kalman: \n" << K << std::endl;
-            // VectorXd Kalman_error = (sensorData - C*state);
-            // std::cout << " Kalman Error (only position and velocity [x y z vx vy vz]): " << std::endl;
-            // std::cout << "  " << Kalman_error(0) << ", " << Kalman_error(1) << ", " << Kalman_error(2) << ", " << Kalman_error(7) << ", " << Kalman_error(8) << ", " << Kalman_error(9) << std::endl;
-
             // Update Kalman equation for the state
             state = state + K*(sensorData - C*state);
 
@@ -356,11 +342,6 @@ void Tracker::kalman_update(const SensorData median_state){
             // Update the time of last prediction
             obs.timestamp = this->now();            
             obs.time_update = this->now();           // 2 ADD NEW TIME VALUE
-
-            // Print to check results
-            // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
-            // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-            // std::cout << " Update Covariance: \n" << covariance << std::endl;
 
             return;     // Once the obstacle is updated we stop the loop and function
         }
@@ -407,19 +388,19 @@ void Tracker::kalman_predict(){
 
     // R Matrix for noise assume of the prediction
     MatrixXd R(13,13);
-    R << 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5;
+    R << 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0,    // 3 Change to 1.5
+        0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5;
 
     // Vector to store the obs wanting to delate
     std::vector<SensorData> to_remove;              // 2
@@ -435,7 +416,6 @@ void Tracker::kalman_predict(){
         // 2. ------------------------------------------------------------------------------------------------------------------------
 
         // Print the id of the obstacle to predict from the list
-        // RCLCPP_INFO(this->get_logger(), "Obstacle to predict with ID: %d", obs.id);
 
         // Give the vector and matrix the previous value store from Kalman
         state = obs.state;
@@ -484,19 +464,9 @@ void Tracker::kalman_predict(){
         obs.state = state;
         obs.covariance = covariance;
 
-        // RCLCPP_INFO(this->get_logger(), "State %d: ", obs.id);
-        // RCLCPP_INFO(this->get_logger(), " -X: %f \n -Y: %f \n -Z: %f ", obs.position.x, obs.position.y, obs.position.z);
-        // RCLCPP_INFO(this->get_logger(), " -QuatX: %f \n -QuatY: %f \n -QuatZ: %f \n -QuatW: %f ", obs.orientation.x, obs.orientation.y, obs.orientation.z, obs.orientation.w);
-        // RCLCPP_INFO(this->get_logger(), " -VX: %f \n -VY: %f \n -VZ: %f ", obs.vel.x, obs.vel.y, obs.vel.z);
-        // RCLCPP_INFO(this->get_logger(), " -Width: %f \n -Length: %f \n -Height: %f ", obs.size.width, obs.size.length, obs.size.height);
-
         // Update the time of last prediction
         obs.timestamp = this->now();
 
-        // Print to check the results
-        // std::cout << " Predict State (only position and velocity [x y z vx vy vz]):" << std::endl;
-        // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-        // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
 
     // 2. IF OBSTACLE MORE THAN X TIME SINCE LAST UPDATE DELATE IT (ASSUME DISSAPEAR) --------------------------------------------

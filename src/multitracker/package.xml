@@ -10,13 +10,19 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sim_msgs</depend>
   <depend>visualization_msgs</depend>
   <build_depend>Eigen3</build_depend> 
   <exec_depend>Eigen3</exec_depend>
   <exec_depend>rviz2</exec_depend>
-  
+  <depend>pcl_conversions</depend>  
+  <depend>pcl_msgs</depend>         
+  <depend>pcl_ros</depend> 
+  <build_depend>pcl_common</build_depend>
+  <exec_depend>pcl_common</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
