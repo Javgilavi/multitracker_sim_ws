@@ -13,7 +13,7 @@ public:
         publisher_drone_ = this->create_publisher<sim_msgs::msg::Adsb>("drone/state", 10);
 
         // Create a timer to publish periodically
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(500), std::bind(&PositionPublisher::publish_positions, this));
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&PositionPublisher::publish_positions, this));
 
         // Create client for GetEntityState service
         client_ = this->create_client<gazebo_msgs::srv::GetEntityState>("/gazebo/get_entity_state"); 

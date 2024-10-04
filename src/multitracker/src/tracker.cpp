@@ -37,7 +37,7 @@ Tracker::Tracker() : Node("simple_tracker"){
     rviz_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("cube/marker", 10);
 
     // Create a timer to publish periodically predict the tracked state, also other to publish in rviz2
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&Tracker::kalman_predict, this));
+    timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Tracker::kalman_predict, this));
     timer2_ = this->create_wall_timer(std::chrono::milliseconds(200), std::bind(&Tracker::rviz_pub, this));
 }
 
@@ -61,13 +61,6 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         fix_state.twist.linear.x = fix_state.twist.linear.x - drone_state.twist.linear.x;
         fix_state.twist.linear.y = fix_state.twist.linear.y - drone_state.twist.linear.y;
         fix_state.twist.linear.z = fix_state.twist.linear.z - drone_state.twist.linear.z;
-
-        // Print the fixed position to check the results
-        // sim_msgs::msg::Adsb prefix_state = *sensor_state;
-        // RCLCPP_INFO(this->get_logger(), "ID detected: %d ", prefix_state.id);
-        // RCLCPP_INFO(this->get_logger(), "Data before fixing: X: %f, Y: %f, Z: %f", prefix_state.pose.position.x, prefix_state.pose.position.y, prefix_state.pose.position.z);
-        // RCLCPP_INFO(this->get_logger(), "Data after fixing: X: %f, Y: %f, Z: %f", fix_state.pose.position.x, fix_state.pose.position.y, fix_state.pose.position.z);
-        // RCLCPP_INFO(this->get_logger(), "---------------------");
 
         for (auto& obs : obs_list) {
             if (obs.id == fix_state.id) {
@@ -94,8 +87,18 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
             }
         }
 
-        // Send the fixed sensor for kalman update
-        kalman_update(fix_state);
+        // Send the fixed sensor to the kalman update
+        SensorData obs;
+        obs.id = fix_state.id;
+        obs.position = fix_state.pose.position;
+        obs.orientation = fix_state.pose.orientation;
+        obs.vel = fix_state.twist.linear;
+        obs.size.width = fix_state.size.width;
+        obs.size.length = fix_state.size.length;
+        obs.size.height = fix_state.size.height;
+        obs.timestamp = this->now();
+        kalman_update(obs);
+
     }
 }
 
@@ -175,27 +178,15 @@ void Tracker::kalman_predict(){
         obs.state = state;
         obs.covariance = covariance;
 
-        // RCLCPP_INFO(this->get_logger(), "State %d: ", obs.id);
-        // RCLCPP_INFO(this->get_logger(), " -X: %f \n -Y: %f \n -Z: %f ", obs.position.x, obs.position.y, obs.position.z);
-        // RCLCPP_INFO(this->get_logger(), " -QuatX: %f \n -QuatY: %f \n -QuatZ: %f \n -QuatW: %f ", obs.orientation.x, obs.orientation.y, obs.orientation.z, obs.orientation.w);
-        // RCLCPP_INFO(this->get_logger(), " -VX: %f \n -VY: %f \n -VZ: %f ", obs.vel.x, obs.vel.y, obs.vel.z);
-        // RCLCPP_INFO(this->get_logger(), " -Width: %f \n -Length: %f \n -Height: %f ", obs.size.width, obs.size.length, obs.size.height);
-
         // Update the time of last prediction
         obs.timestamp = this->now();
 
-        // EN PRINCIPIO NO HAY QUE VOLVER A METERLO YA QUE OBS ES UNA REFERENCIA DEL VALOR DE LA LISTA -> REVISAR
-
-        // Print to check the results
-        // std::cout << " Predict State (only position and velocity [x y z vx vy vz]):" << std::endl;
-        // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-        // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
 
 }
 
 
-void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){ 
+void Tracker::kalman_update(const SensorData fix_state){ 
 
     // Declare of the state and covariance for the update of kalman
     VectorXd state(13);     // State is [x, y, z, angx, angy, angz, angw, vx, vy, vz, width, length, height]
@@ -250,30 +241,22 @@ void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){
             covariance = obs.covariance;
 
             // Fill the sensorData with the fixed state of the cube to the drone
-            sensorData(0) = fix_state.pose.position.x;
-            sensorData(1) = fix_state.pose.position.y;
-            sensorData(2) = fix_state.pose.position.z;
-            sensorData(3) = fix_state.pose.orientation.x;
-            sensorData(4) = fix_state.pose.orientation.y;
-            sensorData(5) = fix_state.pose.orientation.z;
-            sensorData(6) = fix_state.pose.orientation.w;
-            sensorData(7) = fix_state.twist.linear.x;
-            sensorData(8) = fix_state.twist.linear.y;
-            sensorData(9) = fix_state.twist.linear.z;
+            sensorData(0) = fix_state.position.x;
+            sensorData(1) = fix_state.position.y;
+            sensorData(2) = fix_state.position.z;
+            sensorData(3) = fix_state.orientation.x;
+            sensorData(4) = fix_state.orientation.y;
+            sensorData(5) = fix_state.orientation.z;
+            sensorData(6) = fix_state.orientation.w;
+            sensorData(7) = fix_state.vel.x;
+            sensorData(8) = fix_state.vel.y;
+            sensorData(9) = fix_state.vel.z;
             sensorData(10) = fix_state.size.width;
             sensorData(11) = fix_state.size.length;
             sensorData(12) = fix_state.size.height;
         
             // Calculate Kalman Gain
             MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
-
-            // Print to check results
-            // std::cout << " C'*Q*C: \n" << C*covariance*C.transpose() << std::endl;
-            // std::cout << " (C'*Q*C+R)^-1: \n" << (C*covariance*C.transpose() + R).inverse() << std::endl;
-            // std::cout << " Ganancia de Kalman: \n" << K << std::endl;
-            // VectorXd Kalman_error = (sensorData - C*state);
-            // std::cout << " Kalman Error (only position and velocity [x y z vx vy vz]): " << std::endl;
-            // std::cout << "  " << Kalman_error(0) << ", " << Kalman_error(1) << ", " << Kalman_error(2) << ", " << Kalman_error(7) << ", " << Kalman_error(8) << ", " << Kalman_error(9) << std::endl;
 
             // Update Kalman equation for the state
             state = state + K*(sensorData - C*state);
@@ -301,13 +284,6 @@ void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){
 
             // Update the time of last prediction
             obs.timestamp = this->now();
-            
-            // EN PRINCIPIO NO HAY QUE VOLVER A METERLO YA QUE OBS ES UNA REFERENCIA DEL VALOR DE LA LISTA -> REVISAR
-
-            // Print to check results
-            // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
-            // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-            // std::cout << " Update Covariance: \n" << covariance << std::endl;
 
             return;     // Once the obstacle is updated we stop the loop and function
         }
@@ -316,9 +292,9 @@ void Tracker::kalman_update(const sim_msgs::msg::Adsb fix_state){
     // In case the loop ended and no upload was made we add the new data to the list
     SensorData obs;
     obs.id = fix_state.id;
-    obs.position = fix_state.pose.position;
-    obs.orientation = fix_state.pose.orientation;
-    obs.vel = fix_state.twist.linear;
+    obs.position = fix_state.position;
+    obs.orientation = fix_state.orientation;
+    obs.vel = fix_state.vel;
     obs.size.width = fix_state.size.width;
     obs.size.length = fix_state.size.length;
     obs.size.height = fix_state.size.height;

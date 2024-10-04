@@ -6,6 +6,7 @@
 
 float vel_x = 0;
 float vel_y = 0;
+float vel_z = 0;
 
 class DroneMover : public rclcpp::Node {
 public:
@@ -50,7 +51,7 @@ private:
         // Set the velocity (twist)
         request->state.twist.linear.x = vel_x;  // Velocity on the X-axis
         request->state.twist.linear.y = vel_y;
-        request->state.twist.linear.z = 0.0;
+        request->state.twist.linear.z = vel_z;
 
         request->state.twist.angular.x = 0.0;
         request->state.twist.angular.y = 0.0;
@@ -59,12 +60,15 @@ private:
         // Randomly update the velocities
         vel_x = vel_x + (static_cast<double>(rand()) / RAND_MAX) * 0.05 - 0.025;
         vel_y = vel_y + (static_cast<double>(rand()) / RAND_MAX) * 0.05 - 0.025;
+        vel_z = vel_z + (static_cast<double>(rand()) / RAND_MAX) * 0.005 - 0.0025;
 
         // Set velocity limits
         if (vel_x >= 0.2) vel_x = 0.2;
         if (vel_x <= -0.2) vel_x = -0.2;
         if (vel_y >= 0.2) vel_y = 0.2;
         if (vel_y <= -0.2) vel_y = -0.2;
+        if (vel_z >= 0.05) vel_z = 0.05;
+        if (vel_z <= -0.05) vel_z = -0.05;
 
         // Send the request to the service
         auto future = clientSet_->async_send_request(request, [this](rclcpp::Client<gazebo_msgs::srv::SetEntityState>::SharedFuture future) {
@@ -75,6 +79,7 @@ private:
                     if (response->success) {
                         RCLCPP_INFO(this->get_logger(), "Drone is moving at %f m/s in X", vel_x);
                         RCLCPP_INFO(this->get_logger(), "Drone is moving at %f m/s in Y", vel_y);
+                        RCLCPP_INFO(this->get_logger(), "Drone is moving at %f m/s in Z", vel_z);
                     } else {
                         RCLCPP_ERROR(this->get_logger(), "Failed to move cube1");
                     }
