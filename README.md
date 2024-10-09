@@ -2,6 +2,8 @@
 
 This project is developed for **ROS2 Humble** using **GAZEBO Classic** on **Ubuntu 22.04**. The project consists of three packages within `src`, which are used to simulate an entity tracking environment through sensor fusion using a LIDAR and ADS-B data.
 
+This repository also contains the **Multi-tracking Training 10_10_24-pptx**, which serves as the official guide for the training, providing step-by-step instructions.
+
 ## Project Structure
 
 - **drone_sim**: Contains the Gazebo simulation environment, along with complementary nodes to move the drone and the cubes.
