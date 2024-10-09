@@ -100,11 +100,6 @@ SensorData median_sensordata(std::vector<SensorData> data_buffer){
 double distance(const SensorData& data1, const SensorData& data2){
     double dist;
 
-    double dist_x = data1.position.x - data2.position.x;
-    double dist_y = data1.position.y - data2.position.y;
-    double dist_z = data1.position.z - data2.position.z;
-
-    dist = std::sqrt(std::pow(dist_x, 2) + std::pow(dist_y, 2) + std::pow(dist_z, 2));
     // Return the Euclidean distance
     return dist;
 }
@@ -145,49 +140,6 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
     double match_threshold = 1.25;             // Theshold of distance to considere a matchdouble min_dist;   
     double min_dist;
     SensorData obs_match, trace_match;
-
-    int i = 1;
-    for (auto& trace : lidar_traces) {
-        min_dist = match_threshold;
-        RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
-        for (auto& obs : obs_list) {
-            double dist = distance(trace, obs);                 // Calculate distance between the trace and the obstacle
-            RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
-            if(dist < min_dist){
-                obs_match = obs;                                // Update minimum distance and obstacle for possible match
-                min_dist = dist;
-            }
-        }
-        
-        // Only analice if there was a match, if not creare new data giving it an ID
-        if(obs_match.id != 0){   
-            RCLCPP_INFO(this->get_logger(), "Posible match con %d", obs_match.id);
-            // Once we have possible obstacle match for the trace, check if for that obstacle the trace is also its minimum distance value
-            for(auto& trace2 : lidar_traces){
-                double dist = distance(trace2, obs_match);    // Calculate distance between the obstacle and all trace
-                if(dist <= min_dist){
-                    trace_match = trace2;                     // Update minimum distance and trace with minimum distance to this obstacle
-                    min_dist = dist;
-                }
-            }
-
-            // Only if trace with minimum distance to the obstacle possible match is the same as original trace we do a match
-            if(trace_match.position.x == trace.position.x){
-                trace.id = obs_match.id;
-                trace.timestamp = this->now();
-                lidar_matched.push_back(trace);
-                RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
-                lowpass_filter(trace);
-            }
-        } else{
-            // In case is a new data create it
-            trace.id = new_id++;
-            trace.timestamp = this->now();
-            RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
-            // kalman_update(trace);   // Uncomment foe next step
-        }
-    }
-    RCLCPP_INFO(this->get_logger(), "-------");
 }
 // 1 -------------------------------------------------------------------------------------------------------------------------
 
@@ -301,7 +253,7 @@ void Tracker::lowpass_filter(const SensorData obs){
                 median_obs = median_sensordata(obs_buffer);
 
                 // Send the low-pass filter data with median for kalman update
-                // kalman_update(median_obs);   // Uncomment for starting next step  
+                kalman_update(median_obs);  
             }
 
             // To end the loop and function
