@@ -146,13 +146,13 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
     double min_dist;
     SensorData obs_match, trace_match;
 
-    // int i = 1;
+    int i = 1;
     for (auto& trace : lidar_traces) {
         min_dist = match_threshold;
-        // RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
+        RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
         for (auto& obs : obs_list) {
             double dist = distance(trace, obs);                 // Calculate distance between the trace and the obstacle
-            // RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
+            RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
             if(dist < min_dist){
                 obs_match = obs;                                // Update minimum distance and obstacle for possible match
                 min_dist = dist;
@@ -161,7 +161,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
         
         // Only analice if there was a match, if not creare new data giving it an ID
         if(obs_match.id != 0){   
-            // RCLCPP_INFO(this->get_logger(), "Posible match con %d", obs_match.id);
+            RCLCPP_INFO(this->get_logger(), "Posible match con %d", obs_match.id);
             // Once we have possible obstacle match for the trace, check if for that obstacle the trace is also its minimum distance value
             for(auto& trace2 : lidar_traces){
                 double dist = distance(trace2, obs_match);    // Calculate distance between the obstacle and all trace
@@ -176,21 +176,20 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
                 trace.id = obs_match.id;
                 trace.timestamp = this->now();
                 lidar_matched.push_back(trace);
-                // RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
+                RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
                 lowpass_filter(trace);
             }
         } else{
             // In case is a new data create it
             trace.id = new_id++;
-            trace.data_type = 1;            // LIDAR
             trace.timestamp = this->now();
-            // RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
-            kalman_update(trace);
+            RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
+            // kalman_update(trace);   // Uncomment foe next step
         }
     }
-    // RCLCPP_INFO(this->get_logger(), "-------");
+    RCLCPP_INFO(this->get_logger(), "-------");
 }
-// -------------------------------------------------------------------------------------------------------------------------
+// 1 -------------------------------------------------------------------------------------------------------------------------
 
 
 void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){ 
@@ -271,7 +270,6 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         obs.size.width = fix_state.size.width;
         obs.size.length = fix_state.size.length;
         obs.size.height = fix_state.size.height;
-        obs.data_type = 0;                          // ADS-B
         obs.timestamp = this->now();
         RCLCPP_INFO(this->get_logger(), "Cube %d recieve. PASAMOS A SU UPDATE", obs.id);
         kalman_update(obs);
@@ -301,13 +299,9 @@ void Tracker::lowpass_filter(const SensorData obs){
             if(obs_buffer.size() == n_buffer){
                 SensorData median_obs;
                 median_obs = median_sensordata(obs_buffer);
-                median_obs.data_type = 1;   // LIDAR 
-                median_obs.timestamp = this->now();
 
                 // Send the low-pass filter data with median for kalman update
-                std::cout << "ID a actualizar tras low-pass es " << median_obs.id << std::endl;
-                std::cout << "Con x " << median_obs.position.x << std::endl;
-                kalman_update(median_obs);     
+                // kalman_update(median_obs);   // Uncomment for starting next step  
             }
 
             // To end the loop and function
@@ -334,8 +328,38 @@ void Tracker::kalman_update(const SensorData median_state){
 
     // 2 CHANGE KALMAN FILTER UPDATE FOR EACH SENSOR DATA -------------------------------------------------------
     // C Matrix of the reading module || R Matrix for noise acknowledge of the sensor t the filter.
+
+    // C Matrix of the reading module
     MatrixXd C(13,13);
+    C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
+
+    // R Matrix for noise acknowledge of the sensor t the filter. Change to 0.1
     MatrixXd R(13,13);
+    R << 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
 
     // Get each obstacle in the list
     for (auto& obs : obs_list) {
@@ -344,100 +368,30 @@ void Tracker::kalman_update(const SensorData median_state){
         
         if(obs.id == median_state.id){
 
-            if(median_state.data_type == 0){ // ADS-B data
-                std::cout << "ID a actualizar AIS es " << median_state.id << std::endl;
-                C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
-
-                R << 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
-
-                // Fill the sensorData with the fixed state of the cube to the drone
-                sensorData(0) = median_state.position.x;
-                sensorData(1) = median_state.position.y;
-                sensorData(2) = median_state.position.z;
-                sensorData(3) = median_state.orientation.x;
-                sensorData(4) = median_state.orientation.y;
-                sensorData(5) = median_state.orientation.z;
-                sensorData(6) = median_state.orientation.w;
-                sensorData(7) = median_state.vel.x;
-                sensorData(8) = median_state.vel.y;
-                sensorData(9) = median_state.vel.z;
-                sensorData(10) = median_state.size.width;
-                sensorData(11) = median_state.size.length;
-                sensorData(12) = median_state.size.height;
-
-            } else if(median_state.data_type == 1){  // LIDAR data
-                std::cout << "ID a actualizar LIDAR es " << median_state.id << std::endl;
-                C.resize(10,13);
-                R.resize(10,10);
-                sensorData.resize(10);
-                C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // LIDAR doesnt update velocity
-                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
-
-                R << 10, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Change the noise assume for this data
-                    0, 10, 0, 0, 0, 0, 0,0, 0, 0,       // Pose XYZ is less accurate than ADS-B but its reliable
-                    0, 0, 5, 0, 0, 0, 0,0, 0, 0,
-                    0, 0, 0, 500, 0, 0, 0, 0, 0, 0,       // Orientation is not much reliable
-                    0, 0, 0, 0, 500, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 500, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 500, 0, 0, 0,       // No velocity data
-                    0, 0, 0, 0, 0, 0, 0, 100, 0, 0,       // Size is not much reliable
-                    0, 0, 0, 0, 0, 0, 0, 0, 100, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 100;
-                
-                // Fill the sensorData with the fixed state of the cube to the drone
-                sensorData(0) = median_state.position.x;
-                sensorData(1) = median_state.position.y;
-                sensorData(2) = median_state.position.z;
-                sensorData(3) = median_state.orientation.x;
-                sensorData(4) = median_state.orientation.y;
-                sensorData(5) = median_state.orientation.z;
-                sensorData(6) = median_state.orientation.w;
-                sensorData(7) = median_state.size.width;
-                sensorData(8) = median_state.size.length;
-                sensorData(9) = median_state.size.height;
-            }
-            
-            // 2 -------------------------------------------------------------------------------------------------------
-
             // Before updating with kalman, always predict
             kalman_predict();   // Revisar quitar este predict o hacer que solo prediga el obstaculo en cuestion
 
             // Give the vector and matrix the previous value store from Kalman
             state = obs.state;
             covariance = obs.covariance;
-        
+
+            // Fill the sensorData with the fixed state of the cube to the drone
+            sensorData(0) = median_state.position.x;
+            sensorData(1) = median_state.position.y;
+            sensorData(2) = median_state.position.z;
+            sensorData(3) = median_state.orientation.x;
+            sensorData(4) = median_state.orientation.y;
+            sensorData(5) = median_state.orientation.z;
+            sensorData(6) = median_state.orientation.w;
+            sensorData(7) = median_state.vel.x;
+            sensorData(8) = median_state.vel.y;
+            sensorData(9) = median_state.vel.z;
+            sensorData(10) = median_state.size.width;
+            sensorData(11) = median_state.size.length;
+            sensorData(12) = median_state.size.height;
+            
+// 2 -------------------------------------------------------------------------------------------------------
+
             // Calculate Kalman Gain
             MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
 
