@@ -142,7 +142,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
 
     std::vector<SensorData> lidar_matched;
 
-    double match_threshold = 0.5;             // Theshold of distance to considere a matchdouble min_dist;   
+    double match_threshold = 1.25;             // Theshold of distance to considere a matchdouble min_dist;   
     double min_dist;
     SensorData obs_match, trace_match;
 
@@ -152,6 +152,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
         // RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
         for (auto& obs : obs_list) {
             double dist = distance(trace, obs);                 // Calculate distance between the trace and the obstacle
+            RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
             if(dist < min_dist){
                 obs_match = obs;                                // Update minimum distance and obstacle for possible match
                 min_dist = dist;
@@ -175,15 +176,15 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
                 trace.id = obs_match.id;
                 trace.timestamp = this->now();
                 lidar_matched.push_back(trace);
+                RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
                 lowpass_filter(trace);
-                // RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
             }
         } else{
             // In case is a new data create it
             trace.id = new_id++;
             trace.data_type = 1;            // LIDAR
             trace.timestamp = this->now();
-            // RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
+            RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
             kalman_update(trace);
         }
     }
@@ -257,7 +258,7 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
 
         // From 30s to 50s the cube2 ADS-B won't be publish to test
         if(fix_state.id == 2 && (this->now()-start_time_).seconds() > 30 && (this->now()-start_time_).seconds() < 50){
-            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish");
+            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish ---------------------------------------");
             return;  // Don't pass the message
         }
 
@@ -272,6 +273,7 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
         obs.size.height = fix_state.size.height;
         obs.data_type = 0;                          // ADS-B
         obs.timestamp = this->now();
+        RCLCPP_INFO(this->get_logger(), "Cube %d recieve. PASAMOS A SU UPDATE", obs.id);
         kalman_update(obs);
     }
 }
@@ -303,6 +305,8 @@ void Tracker::lowpass_filter(const SensorData obs){
                 median_obs.timestamp = this->now();
 
                 // Send the low-pass filter data with median for kalman update
+                std::cout << "ID a actualizar tras low-pass es " << median_obs.id << std::endl;
+                std::cout << "Con x " << median_obs.position.x << std::endl;
                 kalman_update(median_obs);     
             }
 
@@ -337,10 +341,11 @@ void Tracker::kalman_update(const SensorData median_state){
     for (auto& obs : obs_list) {
 
         // Only update the obstacle in the list with the same ID
+        
         if(obs.id == median_state.id){
 
-            if(obs.data_type == 0){ // ADS-B data
-    
+            if(median_state.data_type == 0){ // ADS-B data
+                std::cout << "ID a actualizar AIS es " << median_state.id << std::endl;
                 C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -355,22 +360,40 @@ void Tracker::kalman_update(const SensorData median_state){
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
 
-                R << 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0,
+                R << 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1;
-                std::cout << "LLEGO AIS" << std::endl;
-            } else if(obs.data_type == 1){  // LIDAR data
 
+                // Fill the sensorData with the fixed state of the cube to the drone
+                sensorData(0) = median_state.position.x;
+                sensorData(1) = median_state.position.y;
+                sensorData(2) = median_state.position.z;
+                sensorData(3) = median_state.orientation.x;
+                sensorData(4) = median_state.orientation.y;
+                sensorData(5) = median_state.orientation.z;
+                sensorData(6) = median_state.orientation.w;
+                sensorData(7) = median_state.vel.x;
+                sensorData(8) = median_state.vel.y;
+                sensorData(9) = median_state.vel.z;
+                sensorData(10) = median_state.size.width;
+                sensorData(11) = median_state.size.length;
+                sensorData(12) = median_state.size.height;
+
+            } else if(median_state.data_type == 1){  // LIDAR data
+                std::cout << "ID a actualizar LIDAR es " << median_state.id << std::endl;
+                C.resize(10,13);
+                R.resize(10,10);
+                sensorData.resize(10);
                 C << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // LIDAR doesnt update velocity
                     0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -378,26 +401,32 @@ void Tracker::kalman_update(const SensorData median_state){
                     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
 
-                R << 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Change the noise assume for this data
-                    0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Pose XYZ is less accurate than ADS-B but its reliable
-                    0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Orientation is not much reliable
-                    0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,         // No velocity data
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0,       // Size is not much reliable
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100;
+                R << 10, 0, 0, 0, 0, 0, 0, 0, 0, 0,       // Change the noise assume for this data
+                    0, 10, 0, 0, 0, 0, 0,0, 0, 0,       // Pose XYZ is less accurate than ADS-B but its reliable
+                    0, 0, 5, 0, 0, 0, 0,0, 0, 0,
+                    0, 0, 0, 500, 0, 0, 0, 0, 0, 0,       // Orientation is not much reliable
+                    0, 0, 0, 0, 500, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 500, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 500, 0, 0, 0,       // No velocity data
+                    0, 0, 0, 0, 0, 0, 0, 100, 0, 0,       // Size is not much reliable
+                    0, 0, 0, 0, 0, 0, 0, 0, 100, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 100;
+                
+                // Fill the sensorData with the fixed state of the cube to the drone
+                sensorData(0) = median_state.position.x;
+                sensorData(1) = median_state.position.y;
+                sensorData(2) = median_state.position.z;
+                sensorData(3) = median_state.orientation.x;
+                sensorData(4) = median_state.orientation.y;
+                sensorData(5) = median_state.orientation.z;
+                sensorData(6) = median_state.orientation.w;
+                sensorData(7) = median_state.size.width;
+                sensorData(8) = median_state.size.length;
+                sensorData(9) = median_state.size.height;
             }
             
             // 2 -------------------------------------------------------------------------------------------------------
@@ -408,32 +437,9 @@ void Tracker::kalman_update(const SensorData median_state){
             // Give the vector and matrix the previous value store from Kalman
             state = obs.state;
             covariance = obs.covariance;
-
-            // Fill the sensorData with the fixed state of the cube to the drone
-            sensorData(0) = median_state.position.x;
-            sensorData(1) = median_state.position.y;
-            sensorData(2) = median_state.position.z;
-            sensorData(3) = median_state.orientation.x;
-            sensorData(4) = median_state.orientation.y;
-            sensorData(5) = median_state.orientation.z;
-            sensorData(6) = median_state.orientation.w;
-            sensorData(7) = median_state.vel.x;
-            sensorData(8) = median_state.vel.y;
-            sensorData(9) = median_state.vel.z;
-            sensorData(10) = median_state.size.width;
-            sensorData(11) = median_state.size.length;
-            sensorData(12) = median_state.size.height;
         
             // Calculate Kalman Gain
             MatrixXd K = covariance*C.transpose()*(C*covariance*C.transpose() + R).inverse();
-
-            // Print to check results
-            // std::cout << " C'*Q*C: \n" << C*covariance*C.transpose() << std::endl;
-            // std::cout << " (C'*Q*C+R)^-1: \n" << (C*covariance*C.transpose() + R).inverse() << std::endl;
-            // std::cout << " Ganancia de Kalman: \n" << K << std::endl;
-            // VectorXd Kalman_error = (sensorData - C*state);
-            // std::cout << " Kalman Error (only position and velocity [x y z vx vy vz]): " << std::endl;
-            // std::cout << "  " << Kalman_error(0) << ", " << Kalman_error(1) << ", " << Kalman_error(2) << ", " << Kalman_error(7) << ", " << Kalman_error(8) << ", " << Kalman_error(9) << std::endl;
 
             // Update Kalman equation for the state
             state = state + K*(sensorData - C*state);
@@ -462,11 +468,6 @@ void Tracker::kalman_update(const SensorData median_state){
             // Update the time of last prediction
             obs.timestamp = this->now();            
             obs.time_update = this->now();          
-
-            // Print to check results
-            // std::cout << " Update State (only position and velocity [x y z vx vy vz]):" << std::endl;
-            // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-            // std::cout << " Update Covariance: \n" << covariance << std::endl;
 
             return;     // Once the obstacle is updated we stop the loop and function
         }
@@ -513,19 +514,19 @@ void Tracker::kalman_predict(){
 
     // R Matrix for noise assume of the prediction
     MatrixXd R(13,13);
-    R << 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5;
+    R << 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.5;
 
     // Vector to store the obs wanting to delate
     std::vector<SensorData> to_remove;           
@@ -537,9 +538,6 @@ void Tracker::kalman_predict(){
         if(this->now().seconds()-obs.time_update.seconds() >= t_alive){
             to_remove.push_back(obs);
         }
-
-        // Print the id of the obstacle to predict from the list
-        // RCLCPP_INFO(this->get_logger(), "Obstacle to predict with ID: %d", obs.id);
 
         // Give the vector and matrix the previous value store from Kalman
         state = obs.state;
@@ -564,7 +562,6 @@ void Tracker::kalman_predict(){
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
 
-        // State^[i+1] = A*State^[i] || State -> [x,y,z,angx,angy,angz,w,vx,vy,vz,width,len,height]
         state = A*state;
 
         // Covariance calculation
@@ -588,19 +585,8 @@ void Tracker::kalman_predict(){
         obs.state = state;
         obs.covariance = covariance;
 
-        // RCLCPP_INFO(this->get_logger(), "State %d: ", obs.id);
-        // RCLCPP_INFO(this->get_logger(), " -X: %f \n -Y: %f \n -Z: %f ", obs.position.x, obs.position.y, obs.position.z);
-        // RCLCPP_INFO(this->get_logger(), " -QuatX: %f \n -QuatY: %f \n -QuatZ: %f \n -QuatW: %f ", obs.orientation.x, obs.orientation.y, obs.orientation.z, obs.orientation.w);
-        // RCLCPP_INFO(this->get_logger(), " -VX: %f \n -VY: %f \n -VZ: %f ", obs.vel.x, obs.vel.y, obs.vel.z);
-        // RCLCPP_INFO(this->get_logger(), " -Width: %f \n -Length: %f \n -Height: %f ", obs.size.width, obs.size.length, obs.size.height);
-
         // Update the time of last prediction
         obs.timestamp = this->now();
-
-        // Print to check the results
-        // std::cout << " Predict State (only position and velocity [x y z vx vy vz]):" << std::endl;
-        // std::cout << "  " << state(0) << ", " << state(1) << ", " << state(2) << ", " << state(7) << ", " << state(8) << ", " << state(9) << std::endl;
-        // std::cout << " Predict Covariance: \n" << covariance << std::endl;
     }
 
     for (auto& obs : to_remove) {
