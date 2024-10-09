@@ -152,7 +152,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
         // RCLCPP_INFO(this->get_logger(), "Lectura de traza %d", i++);
         for (auto& obs : obs_list) {
             double dist = distance(trace, obs);                 // Calculate distance between the trace and the obstacle
-            RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
+            // RCLCPP_INFO(this->get_logger(), "Distancia con obstaculo al ID %d es %f", obs.id, dist);
             if(dist < min_dist){
                 obs_match = obs;                                // Update minimum distance and obstacle for possible match
                 min_dist = dist;
@@ -176,7 +176,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
                 trace.id = obs_match.id;
                 trace.timestamp = this->now();
                 lidar_matched.push_back(trace);
-                RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
+                // RCLCPP_INFO(this->get_logger(), "Match con Cube %d", obs_match.id);
                 lowpass_filter(trace);
             }
         } else{
@@ -184,7 +184,7 @@ void Tracker::matching(std::vector<SensorData> lidar_traces){
             trace.id = new_id++;
             trace.data_type = 1;            // LIDAR
             trace.timestamp = this->now();
-            RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
+            // RCLCPP_INFO(this->get_logger(), "New Cube with ID %d", trace.id);
             kalman_update(trace);
         }
     }
@@ -258,7 +258,7 @@ void Tracker::data_recieve(const sim_msgs::msg::Adsb::SharedPtr sensor_state){
 
         // From 30s to 50s the cube2 ADS-B won't be publish to test
         if(fix_state.id == 2 && (this->now()-start_time_).seconds() > 30 && (this->now()-start_time_).seconds() < 50){
-            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish ---------------------------------------");
+            RCLCPP_INFO(this->get_logger(), "Cube2 doesnt publish");
             return;  // Don't pass the message
         }
 
